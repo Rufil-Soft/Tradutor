@@ -156,7 +156,7 @@ class CapoRegistryView(discord.ui.View):
             if not categoria:
                 categoria = await guild.create_category(nome_cat, overwrites=overwrites_base)
 
-            # A) Canal de Anúncios (📜)
+            # A) Canal de Anúncios da Família (📜)
             canal_anuncios = discord.utils.get(categoria.text_channels, name="📜-capo-announcements")
             if not canal_anuncios:
                 overwrites_announcements = {
@@ -171,7 +171,24 @@ class CapoRegistryView(discord.ui.View):
                     topic=f"Official announcements for {nome_familia}."
                 )
 
-            # B) Chat Geral (💬)
+            # B) Canal de Avisos Globais da Cúpula (🚨-warnings) - Apenas visível ao Capo específico
+            canal_warnings = discord.utils.get(categoria.text_channels, name="🚨-warnings")
+            overwrites_warnings = {
+                guild.default_role: discord.PermissionOverwrite(read_messages=False),
+                cargo_familia: discord.PermissionOverwrite(read_messages=False), # Soldados não vêem
+                member: discord.PermissionOverwrite(read_messages=True, send_messages=False, read_message_history=True) # Apenas este Capo
+            }
+            if not canal_warnings:
+                await guild.create_text_channel(
+                    "🚨-warnings", 
+                    category=categoria, 
+                    overwrites=overwrites_warnings, 
+                    topic=f"Canal de warnings vindos da Cúpula (Don/Capodecinas) exclusivo para o Capo da {nome_familia}."
+                )
+            else:
+                await canal_warnings.set_permissions(member, read_messages=True, send_messages=False, read_message_history=True)
+
+            # C) Chat Geral (💬)
             canal_chat = discord.utils.get(categoria.text_channels, name="💬-general-chat")
             if not canal_chat:
                 await guild.create_text_channel(
@@ -180,7 +197,7 @@ class CapoRegistryView(discord.ui.View):
                     topic=f"Secret HQ text chat for {nome_familia}."
                 )
 
-            # C) Canal de Voz (📢)
+            # D) Canal de Voz (📢)
             canal_voz = discord.utils.get(categoria.voice_channels, name="📢-meeting-room")
             if not canal_voz:
                 await guild.create_voice_channel(
@@ -190,7 +207,7 @@ class CapoRegistryView(discord.ui.View):
 
             await interaction.response.send_message(
                 f"🍷 **Honra e Lealdade!** Assumiste o comando da **{nome_familia}**!\n"
-                f"📂 QG configurado com sucesso: `📜-capo-announcements`, `💬-general-chat` e `📢-meeting-room`!", 
+                f"📂 QG configurado com sucesso (`📜-capo-announcements`, `🚨-warnings`, `💬-general-chat`, `📢-meeting-room`)!", 
                 ephemeral=True
             )
 
@@ -343,6 +360,40 @@ async def setup_logs(ctx):
     )
     await ctx.send(f"✅ Canal de logs criado com sucesso: {canal.mention}")
 
+
+@bot.command(name="setup_capos_message")
+@commands.has_permissions(administrator=True)
+async def setup_capos_message(ctx):
+    """Cria o canal central onde a Cúpula envia avisos para propagar a todas as Famílias."""
+    guild = ctx.guild
+    nome_canal = "🎯-capos-message"
+    
+    canal_existente = discord.utils.get(guild.text_channels, name=nome_canal)
+    if canal_existente:
+        await ctx.send(f"⚠️ O canal central já existe: {canal_existente.mention}")
+        return
+
+    overwrites = {
+        guild.default_role: discord.PermissionOverwrite(read_messages=False),
+        guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+    }
+
+    cargo_capo = discord.utils.get(guild.roles, name="Capo")
+    if cargo_capo:
+        overwrites[cargo_capo] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+
+    for role in guild.roles:
+        if role.permissions.administrator:
+            overwrites[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+
+    canal = await guild.create_text_channel(
+        name=nome_canal,
+        overwrites=overwrites,
+        topic="Tudo o que for colocado aqui será propagado automaticamente para o canal 🚨-warnings de todas as Famílias."
+    )
+    await ctx.send(f"✅ Canal central criado com sucesso: {canal.mention}")
+
+
 @bot.command(name="status_familias")
 @commands.has_permissions(administrator=True)
 async def status_familias(ctx):
@@ -374,6 +425,67 @@ async def status_familias(ctx):
         )
 
     await ctx.send(embed=embed)
+
+
+@bot.command(name="setup_ranks")
+@commands.has_permissions(administrator=True)
+async def setup_ranks(ctx):
+    """Cria um painel elegante e imersivo explicando a hierarquia e os ranks da Máfia."""
+    await ctx.message.delete()
+    
+    embed = discord.Embed(
+        title="🏛️ ORGANIZATION & HIERARCHY — COSA NOSTRA",
+        description=(
+            "*\"Na nossa família não há espaço para soltos. Cada homem tem o seu lugar, "
+            "o seu dever e o seu peso na balança do poder.\"*\n\n"
+            "---"
+        ),
+        color=discord.Color.dark_red(),
+        timestamp=discord.utils.utcnow()
+    )
+    
+    embed.add_field(
+        name="🎩 1. THE DON (O Chefe)",
+        value="O topo da pirâmide. O Don comanda os destinos de todas as Famílias, arbita disputas territoriais e mantém a paz ou declara a guerra.",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="🍷 2. CAPOREGIME / CAPO (O Líder de Regime)",
+        value="O comandante de cada Família (`Corleone`, `Gambino`, `Genovese`, `Lucchese`, `Bonanno`). \n"
+              "• Apenas **1 Capo por Família**.\n"
+              "• Lidera o seu próprio QG privado e comanda até 20 Soldados.\n"
+              "• Responsável pela disciplina e estratégia do território.",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="🗡️ 3. SOLDIER (O Homem de Honra)",
+        value="O braço armado e leal da Família.\n"
+              "• Limite estrito de **20 Soldados por Família**.\n"
+              "• Só pode alistar-se em Famílias que já tenham um Capo ativo.\n"
+              "• Responde exclusivamente à cadeia de comando do seu Capo.",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="🕶️ 4. STAFF / AUDITORES",
+        value="Os guardiões do sistema e da neutralidade. Garantem que as regras de Omertà são cumpridas e auditam as operações através de `#🕶️-mafia-logs`.",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="📜 O CÓDIGO DE CONDUTA (OMERTÀ)",
+        value="• **Lealdade Absoluta:** A palavra dada é um contrato de sangue.\n"
+              "• **Silêncio:** Negócios da Família nunca saem para fora das paredes do QG.\n"
+              "• **Respeito Hierárquico:** O subalterno cumpre, o líder decide.",
+        inline=False
+    )
+    
+    embed.set_footer(text="Cosa Nostra System • A Ordem é a Vossa Sobrevivência")
+    
+    await ctx.send(embed=embed)
+
 
 @bot.command(name="setup_capo")
 @commands.has_permissions(administrator=True)
@@ -425,6 +537,41 @@ async def on_ready():
 async def on_message(message):
     if message.author.bot:
         return
+        
+    # --- SISTEMA DE PROPAGAÇÃO DE MENSAGENS (CAPOS MESSAGE -> WARNINGS) ---
+    if message.channel.name == "🎯-capos-message":
+        propagated_count = 0
+        for familia_key, nome_familia in FAMILIAS.items():
+            nome_cat = f"🍷 {nome_familia.upper()}"
+            categoria = discord.utils.get(message.guild.categories, name=nome_cat)
+            if categoria:
+                canal_warnings = discord.utils.get(categoria.text_channels, name="🚨-warnings")
+                if canal_warnings:
+                    try:
+                        embed = discord.Embed(
+                            title="🚨 COMUNICADO OFICIAL DA CÚPULA",
+                            description=message.content,
+                            color=discord.Color.dark_red(),
+                            timestamp=discord.utils.utcnow()
+                        )
+                        embed.set_author(
+                            name=message.author.display_name, 
+                            icon_url=message.author.display_avatar.url if message.author.display_avatar else None
+                        )
+                        if message.attachments:
+                            embed.set_image(url=message.attachments[0].url)
+                        
+                        await canal_warnings.send(embed=embed)
+                        propagated_count += 1
+                    except Exception as e:
+                        print(f"Erro ao propagar aviso para {nome_familia}: {e}")
+        
+        try:
+            await message.add_reaction("✅")
+        except discord.Forbidden:
+            pass
+        return
+
     await bot.process_commands(message)
 
     if message.content and not message.content.startswith(bot.command_prefix):
