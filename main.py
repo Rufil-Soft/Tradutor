@@ -36,7 +36,7 @@ async def start_dummy_server():
     print(f"Servidor Web ativo na porta {port} (Render Keep-Alive)")
 
 
-# --- SISTEMA DE TRADUÇÃO DAS MENSAGENS DO CHAT ---
+# --- SISTEMA DE TRADUÇÃO DAS MENSAGENS DO CHAT (AUTOMÁTICO PELO DISCORD DO UTILIZADOR) ---
 class TranslateView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -48,11 +48,19 @@ class TranslateView(discord.ui.View):
             await interaction.response.send_message("Não há texto para traduzir.", ephemeral=True)
             return
 
+        # Separa o nome do autor do texto (remove o "**Nome**: ")
+        if ":" in message_text:
+            texto_para_traduzir = message_text.split(":", 1)[1].strip()
+        else:
+            texto_para_traduzir = message_text
+
+        # Obtém o idioma da aplicação do Discord de quem clicou (ex: pt, en, es, fr)
         user_locale = str(interaction.locale).split("-")[0]
+
         try:
             translated = await asyncio.to_thread(
                 GoogleTranslator(source='auto', target=user_locale).translate,
-                message_text
+                texto_para_traduzir
             )
             await interaction.response.send_message(f"🔠 **Tradução ({user_locale.upper()}):**\n{translated}", ephemeral=True)
         except Exception:
