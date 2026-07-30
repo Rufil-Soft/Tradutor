@@ -8,7 +8,7 @@ translation_cache = {}
 class Traducao(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        print("[TRADUÇÃO] Cog carregado. Reação automática (🔀) ativa.")
+        print("[TRADUÇÃO] Cog carregado. Sistema por reação ativo.")
 
     # 1. Adiciona o emoji 🔀 automaticamente a todas as novas mensagens
     @commands.Cog.listener()
@@ -27,7 +27,7 @@ class Traducao(commands.Cog):
         except Exception as e:
             print(f"[TRADUÇÃO] Erro ao adicionar reação: {e}")
 
-    # 2. Quando alguém clica na reação 🔀, envia a tradução por MP (DM)
+    # 2. Quando alguém clica na reação 🔀
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
         # Ignora reações do próprio bot
@@ -50,9 +50,20 @@ class Traducao(commands.Cog):
         if not message.content:
             return
 
-        user = self.bot.get_user(payload.user_id)
+        # Procura o utilizador de forma assíncrona (garante que encontra mesmo fora da cache)
+        try:
+            user = await self.bot.fetch_user(payload.user_id)
+        except Exception:
+            user = self.bot.get_user(payload.user_id)
+
         if not user or user.bot:
             return
+
+        # REMOVE a reação do utilizador para a contagem voltar ao normal (1) e o botão ficar limpo
+        try:
+            await message.remove_reaction(payload.emoji, user)
+        except Exception:
+            pass
 
         texto_para_traduzir = message.content
         target_lang = "pt"
@@ -75,7 +86,7 @@ class Traducao(commands.Cog):
         if not translated:
             return
 
-        # Envia a tradução privada
+        # Envia a tradução por Mensagem Privada
         embed = discord.Embed(
             title="🌐 Tradução Omertà",
             description=translated,
@@ -92,7 +103,7 @@ class Traducao(commands.Cog):
             await user.send(embed=embed)
         except discord.Forbidden:
             try:
-                await channel.send(f"{user.mention} ⚠️ Não consegui enviar a tradução por MP (as tuas DMs estão fechadas).", delete_after=10)
+                await channel.send(f"{user.mention} ⚠️ Abre as tuas DMs/Mensagens Privadas para receber a tradução!", delete_after=8)
             except Exception:
                 pass
 
