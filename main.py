@@ -36,7 +36,7 @@ async def start_dummy_server():
     print(f"Servidor Web ativo na porta {port} (Render Keep-Alive)")
 
 
-# --- SISTEMA DE TRADUÇÃO DAS MENSAGENS DO CHAT (AUTOMÁTICO PELO DISCORD DO UTILIZADOR) ---
+# --- SISTEMA DE TRADUÇÃO DAS MENSAGENS DO CHAT ---
 class TranslateView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -48,13 +48,11 @@ class TranslateView(discord.ui.View):
             await interaction.response.send_message("Não há texto para traduzir.", ephemeral=True)
             return
 
-        # Separa o nome do autor do texto (remove o "**Nome**: ")
         if ":" in message_text:
             texto_para_traduzir = message_text.split(":", 1)[1].strip()
         else:
             texto_para_traduzir = message_text
 
-        # Obtém o idioma da aplicação do Discord de quem clicou (ex: pt, en, es, fr)
         user_locale = str(interaction.locale).split("-")[0]
 
         try:
@@ -209,7 +207,54 @@ class SoldierEnlistView(discord.ui.View):
         await self.handle_soldier_join(interaction, "bonanno")
 
 
-# --- COMANDOS PARA GERAR OS PAINÉIS ---
+# --- COMANDOS DE SETUP ---
+
+@bot.command(name="setup_canais")
+@commands.has_permissions(administrator=True)
+async def setup_canais(ctx):
+    """Cria a categoria e os canais privados em inglês."""
+    guild = ctx.guild
+    msg = await ctx.send("⏳ Creating Family Headquarters...")
+
+    # Categoria em Inglês
+    nome_categoria = "🍷 FAMILY HEADQUARTERS"
+    categoria = discord.utils.get(guild.categories, name=nome_categoria)
+    if not categoria:
+        categoria = await guild.create_category(nome_categoria)
+
+    canais_criados = []
+
+    for key, nome_familia in FAMILIAS.items():
+        cargo_familia = discord.utils.get(guild.roles, name=nome_familia)
+
+        if not cargo_familia:
+            await ctx.send(f"⚠️ Role **{nome_familia}** not found! Please create it in Discord settings.")
+            continue
+
+        # Nome do canal em Inglês (ex: #🥃-corleone-hq)
+        nome_canal = f"🥃-{key}-hq"
+
+        canal_existente = discord.utils.get(guild.text_channels, name=nome_canal)
+        if canal_existente:
+            canais_criados.append(canal_existente.mention)
+            continue
+
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(read_messages=False),
+            cargo_familia: discord.PermissionOverwrite(read_messages=True, send_messages=True, read_message_history=True)
+        }
+
+        canal = await guild.create_text_channel(
+            name=nome_canal,
+            category=categoria,
+            overwrites=overwrites,
+            topic=f"Secret Headquarters for {nome_familia}. Authorized personnel only."
+        )
+        canais_criados.append(canal.mention)
+
+    await msg.edit(content="✅ **Family Headquarters created successfully!**\n" + "\n".join(canais_criados))
+
+
 @bot.command(name="setup_capo")
 @commands.has_permissions(administrator=True)
 async def setup_capo(ctx):
@@ -226,6 +271,7 @@ async def setup_capo(ctx):
         "⚠️ **Reivindica a tua Família abaixo.** Ao clicar, assume a liderança do território. Apenas 1 Capo por Família."
     )
     await ctx.send(content=texto, view=CapoRegistryView())
+
 
 @bot.command(name="setup_soldier")
 @commands.has_permissions(administrator=True)
@@ -253,6 +299,7 @@ async def on_ready():
     bot.add_view(SoldierEnlistView())
     await start_dummy_server()
     print(f"Bot Máfia & Tradutor ligado como {bot.user}")
+
 
 @bot.event
 async def on_message(message):
