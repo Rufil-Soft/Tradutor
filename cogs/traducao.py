@@ -1,4 +1,5 @@
 import asyncio
+import traceback
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -8,16 +9,15 @@ from typing import Dict
 from config import BLOCK_TIMEOUT
 from bot import bot
 
-# Estruturas para o sistema de blocos
+# Estruturas do sistema de blocos
 pending_blocks: Dict[int, dict] = {}
 current_button_message: Dict[int, discord.Message] = {}
 translation_cache: Dict[tuple, str] = {}
 
 
 class TranslateBlockView(discord.ui.View):
-    """Um único botão que traduz todo o bloco de mensagens."""
     def __init__(self, author_id: int, first_msg_id: int, last_msg_id: int):
-        super().__init__(timeout=600)  # 10 minutos
+        super().__init__(timeout=600)
         self.author_id = author_id
         self.first_msg_id = first_msg_id
         self.last_msg_id = last_msg_id
@@ -27,7 +27,6 @@ class TranslateBlockView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
         channel = interaction.channel
         try:
-            # Recolhe as mensagens do bloco no histórico
             messages = []
             async for msg in channel.history(
                 limit=50,
@@ -36,13 +35,10 @@ class TranslateBlockView(discord.ui.View):
             ):
                 if msg.author.id == self.author_id and msg.content:
                     messages.append(msg)
-            # Inclui a última mensagem
             last_msg = await channel.fetch_message(self.last_msg_id)
             if last_msg.author.id == self.author_id and last_msg.content:
                 messages.append(last_msg)
-            # Ordena cronologicamente
             messages.sort(key=lambda m: m.created_at)
-
             if not messages:
                 await interaction.followup.send("Não foi possível recuperar o bloco.", ephemeral=True)
                 return
@@ -50,7 +46,7 @@ class TranslateBlockView(discord.ui.View):
             combined_text = "\n".join(m.content for m in messages)
             user_locale = (str(interaction.locale).split("-")[0] or "pt")[:2]
 
-            # Cache para não repetir traduções
+            # Usa cache se existir
             cache_key = (combined_text, user_locale)
             if cache_key in translation_cache:
                 translated = translation_cache[cache_key]
@@ -66,7 +62,7 @@ class TranslateBlockView(discord.ui.View):
                 await interaction.followup.send("Não foi possível obter tradução.", ephemeral=True)
                 return
 
-            # Formata a resposta (alinhando linhas se possível)
+            # Formata a resposta
             original_lines = combined_text.split("\n")
             translated_lines = translated.split("\n")
             if len(original_lines) == len(translated_lines):
@@ -79,38 +75,38 @@ class TranslateBlockView(discord.ui.View):
 
         except Exception as e:
             print(f"[TRADUÇÃO] Erro ao processar bloco: {e}")
+            traceback.print_exc()
             await interaction.followup.send("Ocorreu um erro ao traduzir o bloco.", ephemeral=True)
 
 
 async def finalizar_bloco(channel: discord.TextChannel, bloco: dict):
-    """Fecha um bloco e envia a mensagem com o botão de tradução."""
-    # Remove o botão anterior (se existir)
     if channel.id in current_button_message:
         try:
             await current_button_message[channel.id].delete()
-        except:
+        except Exception:
             pass
-
     if not bloco["messages"]:
         return
-
     first_msg = bloco["messages"][0]
     last_msg = bloco["messages"][-1]
     view = TranslateBlockView(bloco["author_id"], first_msg.id, last_msg.id)
-    button_msg = await channel.send(
-        f"📚 {len(bloco['messages'])} mensagens de {first_msg.author.display_name}. Clique para traduzir:",
-        view=view
-    )
-    current_button_message[channel.id] = button_msg
+    try:
+        button_msg = await channel.send(
+            f"📚 {len(bloco['messages'])} mensagens de {first_msg.author.display_name}. Clique para traduzir:",
+            view=view
+        )
+        current_button_message[channel.id] = button_msg
+    except Exception as e:
+        print(f"[TRADUÇÃO] Erro ao enviar botão de bloco: {e}")
 
 
 class Traducao(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        print("[TRADUÇÃO] Cog carregado.")
         self.bg_task = self.bot.loop.create_task(self._close_stale_blocks())
 
     async def _close_stale_blocks(self):
-        """Fecha blocos que ficaram inativos há mais de BLOCK_TIMEOUT segundos."""
         await self.bot.wait_until_ready()
         while not self.bot.is_closed():
             await asyncio.sleep(30)
@@ -122,12 +118,12 @@ class Traducao(commands.Cog):
                         await finalizar_bloco(channel, bloco)
                     pending_blocks.pop(channel_id, None)
 
-    # ---------- Sistema automático de blocos ----------
+    # Sistema automático de blocos
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         if message.author.bot or not message.content:
             return
-        # Não interferir em canais de comunicados – a propagação trata noutro cog
+        # Não interferir no canal de comunicados
         if message.channel.name == "🎯-capos-message":
             return
 
@@ -136,13 +132,11 @@ class Traducao(commands.Cog):
 
         if channel.id in pending_blocks:
             bloco = pending_blocks[channel.id]
-            # Mesmo autor e dentro do intervalo -> continua o bloco
             if (message.author.id == bloco["author_id"] and
                 (now - bloco["last_time"]).total_seconds() <= BLOCK_TIMEOUT):
                 bloco["messages"].append(message)
                 bloco["last_time"] = now
             else:
-                # Fecha o bloco anterior e inicia um novo
                 await finalizar_bloco(channel, bloco)
                 pending_blocks[channel.id] = {
                     "author_id": message.author.id,
@@ -150,14 +144,13 @@ class Traducao(commands.Cog):
                     "last_time": now
                 }
         else:
-            # Primeiro bloco do canal
             pending_blocks[channel.id] = {
                 "author_id": message.author.id,
                 "messages": [message],
                 "last_time": now
             }
 
-    # ---------- Menu de contexto "Traduzir Mensagem" ----------
+    # Menu de contexto "Traduzir Mensagem"
     @app_commands.context_menu(name="Traduzir Mensagem")
     async def traduzir_context(self, interaction: discord.Interaction, message: discord.Message):
         await interaction.response.defer(ephemeral=True)
@@ -165,7 +158,7 @@ class Traducao(commands.Cog):
             await interaction.followup.send("Esta mensagem não tem texto para traduzir.", ephemeral=True)
             return
         user_locale = (str(interaction.locale).split("-")[0] or "pt")[:2]
-        print(f"[TRADUTOR] Traduzindo para locale='{user_locale}'")
+        print(f"[TRADUTOR] Traduzindo para '{user_locale}' (msg de {message.author})")
         try:
             translated = await asyncio.to_thread(
                 GoogleTranslator(source='auto', target=user_locale).translate,
