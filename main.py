@@ -661,6 +661,17 @@ async def setup_soldier(ctx):
     )
     await ctx.send(content=texto, view=SoldierEnlistView())
 
+@bot.command(name="sync")
+@commands.has_permissions(administrator=True)
+async def sync_commands(ctx):
+    """Sincroniza os comandos de barra instantaneamente no servidor atual."""
+    try:
+        bot.tree.copy_global_to(guild=ctx.guild)
+        synced = await bot.tree.sync(guild=ctx.guild)
+        await ctx.send(f"✅ Sincronizados **{len(synced)}** comandos de barra instantaneamente neste servidor!")
+    except Exception as e:
+        await ctx.send(f"❌ Erro ao sincronizar comandos: {e}")
+
 
 @bot.event
 async def on_ready():
