@@ -396,7 +396,6 @@ class DonPollModal(discord.ui.Modal, title="Criar Votação Oficial da Cúpula")
     )
 
     async def on_submit(self, interaction: discord.Interaction):
-        # Resposta inicial para evitar timeout
         await interaction.response.defer(ephemeral=True)
         
         try:
@@ -413,7 +412,7 @@ class DonPollModal(discord.ui.Modal, title="Criar Votação Oficial da Cúpula")
             guild = interaction.guild
             resultado = {}
 
-            # --- PROPAGAÇÃO PARA AS FAMÍLIAS ---
+            # Propagação para as famílias
             for familia_key, nome_familia in FAMILIAS.items():
                 nome_cat = f"🍷 {nome_familia.upper()}"
                 categoria = discord.utils.get(guild.categories, name=nome_cat)
@@ -442,7 +441,6 @@ class DonPollModal(discord.ui.Modal, title="Criar Votação Oficial da Cúpula")
                     )
                     resultado[nome_familia] = "✅ Sucesso"
                 except Exception:
-                    # Fallback por reações
                     try:
                         emojis = ["1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"]
                         descricao = "\n".join([f"{emojis[i]} {op}" for i, op in enumerate(raw_opcoes)])
@@ -457,9 +455,9 @@ class DonPollModal(discord.ui.Modal, title="Criar Votação Oficial da Cúpula")
                         resultado[nome_familia] = "✅ Sucesso (por reações)"
                     except Exception as e:
                         resultado[nome_familia] = f"❌ Falhou: {str(e)[:60]}"
-                await asyncio.sleep(1)  # Pausa entre famílias
+                await asyncio.sleep(1)
 
-            # --- ENVIAR TAMBÉM NO CANAL ONDE O /VOTACAO FOI USADO ---
+            # Enviar também no canal onde o /votacao foi usado
             canal_origem = interaction.channel
             if canal_origem:
                 perms_origem = canal_origem.permissions_for(guild.me)
@@ -473,9 +471,9 @@ class DonPollModal(discord.ui.Modal, title="Criar Votação Oficial da Cúpula")
                             poll=poll_origem
                         )
                     except Exception:
-                        pass  # Ignorar falha no canal de origem
+                        pass
 
-            # --- RESPOSTA PRIVADA AO UTILIZADOR ---
+            # Resposta privada ao utilizador
             sucessos = [f for f, r in resultado.items() if "Sucesso" in r]
             falhas = {f: r for f, r in resultado.items() if "Sucesso" not in r}
 
@@ -492,14 +490,33 @@ class DonPollModal(discord.ui.Modal, title="Criar Votação Oficial da Cúpula")
             await interaction.followup.send(resposta, ephemeral=True)
 
         except Exception as erro:
-            # Captura qualquer erro inesperado e informa o utilizador
             try:
                 await interaction.followup.send(
                     f"❌ Ocorreu um erro inesperado ao criar a votação: {str(erro)[:200]}",
                     ephemeral=True
                 )
             except:
-                pass  # Última salvaguarda
+                pass
+
+
+@bot.tree.command(name="votacao", description="Abre um formulário para o Don criar uma votação global nas Famílias.")
+@commands.has_permissions(administrator=True)
+async def votacao_slash(interaction: discord.Interaction):
+    await interaction.response.send_modal(DonPollModal())
+
+
+# --- COMANDO SYNC PARA REGISTAR COMANDOS INSTANTANEAMENTE ---
+@bot.command(name="sync")
+@commands.has_permissions(administrator=True)
+async def sync_commands(ctx):
+    """Sincroniza os comandos de barra instantaneamente no servidor atual."""
+    try:
+        bot.tree.copy_global_to(guild=ctx.guild)
+        synced = await bot.tree.sync(guild=ctx.guild)
+        await ctx.send(f"✅ Sincronizados **{len(synced)}** comandos de barra instantaneamente neste servidor!")
+    except Exception as e:
+        await ctx.send(f"❌ Erro ao sincronizar comandos: {e}")
+
 
 # --- COMANDOS DE SETUP E RELATÓRIO ---
 
