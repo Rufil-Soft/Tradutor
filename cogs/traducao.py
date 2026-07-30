@@ -8,15 +8,33 @@ translation_cache = {}
 class Traducao(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        print("[TRADUÇÃO] Cog carregado. Sistema por reação (🔀) ativo.")
+        print("[TRADUÇÃO] Cog carregado. Reação automática (🔀) ativa.")
 
+    # 1. Adiciona o emoji 🔀 automaticamente a todas as novas mensagens
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        if message.author.bot or not message.content:
+            return
+        if message.content.startswith(self.bot.command_prefix):
+            return
+        if message.channel.name == "🎯-capos-message":
+            return
+
+        try:
+            await message.add_reaction("🔀")
+        except discord.Forbidden:
+            pass
+        except Exception as e:
+            print(f"[TRADUÇÃO] Erro ao adicionar reação: {e}")
+
+    # 2. Quando alguém clica na reação 🔀, envia a tradução por MP (DM)
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
         # Ignora reações do próprio bot
         if payload.user_id == self.bot.user.id:
             return
 
-        # Verifica se o emoji é a seta de tradução 🔀
+        # Verifica se o emoji é 🔀
         if str(payload.emoji) != "🔀":
             return
 
@@ -32,14 +50,11 @@ class Traducao(commands.Cog):
         if not message.content:
             return
 
-        # Obtém o utilizador que reagiu
         user = self.bot.get_user(payload.user_id)
         if not user or user.bot:
             return
 
         texto_para_traduzir = message.content
-
-        # Tenta detetar o idioma do utilizador (padrão 'pt')
         target_lang = "pt"
 
         cache_key = (texto_para_traduzir, target_lang)
@@ -54,13 +69,13 @@ class Traducao(commands.Cog):
                 if translated:
                     translation_cache[cache_key] = translated
             except Exception as e:
-                print(f"[TRADUTOR] Erro ao traduzir por reação: {e}")
+                print(f"[TRADUTOR] Erro na tradução: {e}")
                 return
 
         if not translated:
             return
 
-        # Envia a tradução por mensagem privada (DM) para preservar a estética dos chats
+        # Envia a tradução privada
         embed = discord.Embed(
             title="🌐 Tradução Omertà",
             description=translated,
@@ -76,7 +91,6 @@ class Traducao(commands.Cog):
         try:
             await user.send(embed=embed)
         except discord.Forbidden:
-            # Caso o utilizador tenha as DMs fechadas, tenta enviar uma mensagem temporária no canal
             try:
                 await channel.send(f"{user.mention} ⚠️ Não consegui enviar a tradução por MP (as tuas DMs estão fechadas).", delete_after=10)
             except Exception:
