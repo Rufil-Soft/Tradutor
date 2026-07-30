@@ -10,3 +10,5 @@ async def enviar_log_mafia(guild: discord.Guild, titulo: str, descricao: str, co
             await canal_log.send(embed=embed)
     except Exception as e:
         print(f"Erro ao enviar log da máfia: {e}")
+async def setup(bot):
+    pass  # Permite que o Discord.py carregue o ficheiro sem dar erro
