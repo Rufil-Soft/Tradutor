@@ -3,6 +3,7 @@ import asyncio
 import discord
 from discord.ext import commands
 from deep_translator import GoogleTranslator
+from aiohttp import web
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -20,12 +21,27 @@ FAMILIAS = {
 LIMITE_SOLDIERS = 20
 
 
-# --- SISTEMA DE TRADUÇÃO DAS MENSAGENS DO CHAT ⇄ ---
+# --- SERVIDOR WEB DUMMY PARA O RENDER NÃO DAR TIMEOUT DE PORTA ---
+async def handle_ping(request):
+    return web.Response(text="Bot Máfia Online!")
+
+async def start_dummy_server():
+    app = web.Application()
+    app.router.add_get("/", handle_ping)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.getenv("PORT", 8080))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    print(f"Servidor Web ativo na porta {port} (Render Keep-Alive)")
+
+
+# --- SISTEMA DE TRADUÇÃO DAS MENSAGENS DO CHAT ---
 class TranslateView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Traduzir", style=discord.ButtonStyle.secondary, emoji="⇄", custom_id="translate_button")
+    @discord.ui.button(label="Traduzir", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="translate_button")
     async def translate_button_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         message_text = interaction.message.content
         if not message_text:
@@ -48,7 +64,7 @@ class CapoRegistryView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Ler Pacto no meu idioma", style=discord.ButtonStyle.secondary, emoji="⇄", custom_id="translate_omerta_capo", row=0)
+    @discord.ui.button(label="Ler Pacto no meu idioma", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="translate_omerta_capo", row=0)
     async def translate_omerta(self, interaction: discord.Interaction, button: discord.ui.Button):
         user_locale = str(interaction.locale).split("-")[0]
         pacto_texto = (
@@ -113,7 +129,7 @@ class SoldierEnlistView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Ler Pacto no meu idioma", style=discord.ButtonStyle.secondary, emoji="⇄", custom_id="translate_omerta_soldier", row=0)
+    @discord.ui.button(label="Ler Pacto no meu idioma", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="translate_omerta_soldier", row=0)
     async def translate_omerta(self, interaction: discord.Interaction, button: discord.ui.Button):
         user_locale = str(interaction.locale).split("-")[0]
         pacto_texto = (
@@ -227,6 +243,7 @@ async def on_ready():
     bot.add_view(TranslateView())
     bot.add_view(CapoRegistryView())
     bot.add_view(SoldierEnlistView())
+    await start_dummy_server()
     print(f"Bot Máfia & Tradutor ligado como {bot.user}")
 
 @bot.event
