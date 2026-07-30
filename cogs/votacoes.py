@@ -72,3 +72,8 @@ def build_resultado_futurista_embed(grupo: dict, guild: discord.Guild, final: bo
     familias_txt = ", ".join(v["familia"] for v in grupo["member_polls"].values()) or "Nenhuma"
     embed.set_footer(text=f"SISTEMA OMERTA // Famílias Sincronizadas: {familias_txt}")
     return embed
+
+    async def setup(bot):
+    # Se usaste uma classe para a Cog:
+    # await bot.add_cog(Votacoes(bot)) 
+    pass
