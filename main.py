@@ -380,7 +380,7 @@ class SoldierEnlistView(discord.ui.View):
 
 
 # --- SISTEMA DE VOTAÇÕES INTERATIVAS (MODAL + SLASH COMMAND) ---
-# ATUALIZADO COM PAUSA E TRATAMENTO DE RATE LIMIT PARA EVITAR QUEDAS
+# VERSÃO MELHORADA COM FEEDBACK POR FAMÍLIA
 class DonPollModal(discord.ui.Modal, title="Criar Votação Oficial da Cúpula"):
     pergunta = discord.ui.TextInput(
         label="Pergunta da Votação",
@@ -397,71 +397,90 @@ class DonPollModal(discord.ui.Modal, title="Criar Votação Oficial da Cúpula")
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        
+
         pergunta_texto = self.pergunta.value
         raw_opcoes = [o.strip() for o in self.opcoes.value.split(",") if o.strip()]
-        
+
         if len(raw_opcoes) < 2:
             await interaction.followup.send("❌ Tens de fornecer pelo menos 2 opções válidas separadas por vírgula.", ephemeral=True)
             return
-        
         if len(raw_opcoes) > 10:
             await interaction.followup.send("❌ O Discord permite no máximo 10 opções por votação.", ephemeral=True)
             return
 
         guild = interaction.guild
-        enviados = 0
-        familias_sem_qg = []
+        # Dicionário para guardar o resultado de cada família
+        resultado = {}
 
         for familia_key, nome_familia in FAMILIAS.items():
             nome_cat = f"🍷 {nome_familia.upper()}"
             categoria = discord.utils.get(guild.categories, name=nome_cat)
-            
             if not categoria:
-                familias_sem_qg.append(nome_familia)
+                resultado[nome_familia] = "❌ Categoria não encontrada (sem QG)"
                 continue
 
             canal_votacoes = discord.utils.get(categoria.text_channels, name="🗳️-votações")
             if not canal_votacoes:
-                familias_sem_qg.append(nome_familia)
+                resultado[nome_familia] = "❌ Canal 🗳️-votações não encontrado"
                 continue
 
-            # Cria uma nova Poll para cada canal (evita problemas de reutilização)
+            # Verificar permissões do bot no canal
+            perms = canal_votacoes.permissions_for(guild.me)
+            if not perms.send_messages:
+                resultado[nome_familia] = "❌ Bot sem permissão 'Send Messages'"
+                continue
+            if not perms.create_polls:
+                resultado[nome_familia] = "❌ Bot sem permissão 'Create Polls' (adiciona esta permissão no canal!)"
+                continue
+
+            # Criar poll
             poll = discord.Poll(question=pergunta_texto, duration=24)
             for opt in raw_opcoes:
                 poll.add_answer(text=opt)
 
-            try:
-                await canal_votacoes.send(
-                    content=f"🗳️ **VOTAÇÃO DA CÚPULA** (Aberta por {interaction.user.mention})",
-                    poll=poll
-                )
-                enviados += 1
-                # Pausa de 1 segundo entre envios para respeitar os rate limits do Discord
-                await asyncio.sleep(1)
+            # Tentar enviar com até 2 tentativas (para rate limit)
+            for tentativa in range(2):
+                try:
+                    await canal_votacoes.send(
+                        content=f"🗳️ **VOTAÇÃO DA CÚPULA** (Aberta por {interaction.user.mention})",
+                        poll=poll
+                    )
+                    resultado[nome_familia] = "✅ Sucesso"
+                    await asyncio.sleep(1)  # pausa entre famílias
+                    break
+                except discord.Forbidden:
+                    resultado[nome_familia] = "❌ Bot sem permissão para enviar polls (403 Forbidden). Verifica 'Create Polls' no canal."
+                    break
+                except discord.HTTPException as e:
+                    if e.status == 429:
+                        retry_after = getattr(e, 'retry_after', 5)
+                        print(f"Rate limit para {nome_familia}, aguardando {retry_after}s...")
+                        await asyncio.sleep(retry_after)
+                        continue
+                    else:
+                        resultado[nome_familia] = f"❌ Erro HTTP {e.status}"
+                        break
+                except Exception as e:
+                    resultado[nome_familia] = f"❌ Erro: {str(e)[:50]}"
+                    break
+            else:
+                # Se o loop esgotar as tentativas sem sucesso
+                resultado[nome_familia] = "❌ Falha após retentativa de rate limit"
 
-            except discord.HTTPException as e:
-                if e.status == 429:  # Rate limit
-                    retry_after = getattr(e, 'retry_after', 5)
-                    print(f"Rate limit atingido. Aguardando {retry_after} segundos.")
-                    await asyncio.sleep(retry_after)
-                    try:
-                        # Tentativa única de reenvio
-                        await canal_votacoes.send(
-                            content=f"🗳️ **VOTAÇÃO DA CÚPULA** (Aberta por {interaction.user.mention})",
-                            poll=poll
-                        )
-                        enviados += 1
-                    except Exception as ex:
-                        print(f"Falha após retentativa para {nome_familia}: {ex}")
-                else:
-                    print(f"Erro HTTP {e.status} ao enviar para {nome_familia}: {e}")
-            except Exception as e:
-                print(f"Erro ao enviar para {nome_familia}: {e}")
+        # Construir resposta final
+        sucessos = [f for f, r in resultado.items() if r == "✅ Sucesso"]
+        falhas = {f: r for f, r in resultado.items() if r != "✅ Sucesso"}
 
-        resposta = f"✅ Votação interativa criada e propagada com sucesso para o canal de votações de **{enviados}** Famílias!"
-        if familias_sem_qg:
-            resposta += f"\n⚠️ *Aviso: As seguintes Famílias não têm QG/canal de votações ativo:* {', '.join(familias_sem_qg)}"
+        resposta = ""
+        if sucessos:
+            resposta += f"✅ Votação propagada com sucesso para: **{', '.join(sucessos)}**.\n"
+        if falhas:
+            resposta += "\n⚠️ **Problemas encontrados:**\n"
+            for fam, motivo in falhas.items():
+                resposta += f"• **{fam}**: {motivo}\n"
+
+        if not sucessos and not falhas:
+            resposta = "⚠️ Nenhuma família foi processada."
 
         await interaction.followup.send(resposta, ephemeral=True)
 
