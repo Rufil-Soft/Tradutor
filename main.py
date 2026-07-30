@@ -12,7 +12,8 @@ COGS = [
     "cogs.traducao",
     "cogs.votacoes",
     "cogs.paineis",
-    "cogs.comandos_setup",   # carrega primeiro, outros dependem dele
+    "cogs.comandos_setup",
+    "cogs.admin",
 ]
 
 async def load_extensions():
