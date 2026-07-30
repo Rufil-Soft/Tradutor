@@ -4,6 +4,7 @@ import discord
 from discord.ext import commands
 from deep_translator import GoogleTranslator
 from aiohttp import web
+from datetime import timedelta
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -434,7 +435,7 @@ class DonPollModal(discord.ui.Modal, title="Criar Votação Oficial da Cúpula")
                 continue
 
             # Criar poll
-            poll = discord.Poll(question=pergunta_texto, duration=24)
+            poll = discord.Poll(question=pergunta_texto, duration=timedelta(hours=24))
             for opt in raw_opcoes:
                 poll.add_answer(text=opt)
 
