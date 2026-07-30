@@ -11,7 +11,7 @@ class RanksView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Read Ranks in my language", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="translate_ranks", row=0)
+    @discord.ui.button(emoji="🔀", style=discord.ButtonStyle.secondary, custom_id="translate_ranks", row=0)
     async def translate_ranks(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         user_locale = str(interaction.locale).split("-")[0] or "pt"
@@ -151,7 +151,7 @@ class CapoRegistryView(discord.ui.View):
     async def capo_bonanno(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.handle_capo_claim(interaction, "bonanno")
 
-    @discord.ui.button(label="Read Omertà in my language", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="translate_omerta_capo", row=2)
+    @discord.ui.button(emoji="🔀", style=discord.ButtonStyle.secondary, custom_id="translate_omerta_capo", row=2)
     async def translate_omerta(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         user_locale = str(interaction.locale).split("-")[0] or "pt"
@@ -224,7 +224,7 @@ class SoldierEnlistView(discord.ui.View):
     async def soldier_bonanno(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.handle_soldier_join(interaction, "bonanno")
 
-    @discord.ui.button(label="Read Omertà in my language", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="translate_omerta_soldier", row=2)
+    @discord.ui.button(emoji="🔀", style=discord.ButtonStyle.secondary, custom_id="translate_omerta_soldier", row=2)
     async def translate_omerta(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         user_locale = str(interaction.locale).split("-")[0] or "pt"
