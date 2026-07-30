@@ -53,7 +53,7 @@ class TranslateView(discord.ui.View):
             return
 
         await interaction.followup.send(
-            f"🌍**:**{translated}",
+            f"🌍** ==> **{translated}",
             ephemeral=True
         )
 
