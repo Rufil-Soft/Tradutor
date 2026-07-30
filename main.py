@@ -7,8 +7,11 @@ from servidor_dummy import start_dummy_server
 # Lista de cogs a carregar (nomes dos módulos dentro da pasta cogs)
 COGS = [
     "cogs.logs",             # carrega primeiro, outros dependem dele
-   
-]
+    "cogs.traducao",
+    "cogs.votacoes",
+    "cogs.paineis",
+    "cogs.comandos_setup",           # carrega primeiro, outros dependem dele
+   ]
 
 async def load_extensions():
     """Carrega cada cog individualmente, mostrando erros sem parar o bot."""
