@@ -77,6 +77,24 @@ class TranslateView(discord.ui.View):
             await interaction.response.send_message("Erro ao traduzir mensagem.", ephemeral=True)
 
 
+# --- SISTEMA DE LOGS E AUDITORIA DA MÁFIA (PROTEGIDO) ---
+async def enviar_log_mafia(guild: discord.Guild, titulo: str, descricao: str, cor: discord.Color):
+    """Envia um registo de atividade para o canal privado de logs sem quebrar o bot caso falhe."""
+    try:
+        canal_log = discord.utils.get(guild.text_channels, name="🕶️-mafia-logs")
+        if canal_log:
+            embed = discord.Embed(
+                title=titulo,
+                description=descricao,
+                color=cor,
+                timestamp=discord.utils.utcnow()
+            )
+            embed.set_footer(text="Máfia System • Registro de Lealdade")
+            await canal_log.send(embed=embed)
+    except Exception as e:
+        print(f"Erro ao enviar log da máfia: {e}")
+
+
 # --- PAINEL DOS CAPOS (#capo-registry) ---
 class CapoRegistryView(discord.ui.View):
     def __init__(self):
@@ -126,19 +144,21 @@ class CapoRegistryView(discord.ui.View):
             # 1. Atribui o cargo ao Capo
             await member.add_roles(cargo_familia)
 
-            # 2. Criação Dinâmica da Categoria e Canais em Inglês
+            # 2. Gestão Inteligente da Categoria e Canais
             nome_cat = f"🍷 {nome_familia.upper()}"
             categoria = discord.utils.get(guild.categories, name=nome_cat)
 
+            overwrites_base = {
+                guild.default_role: discord.PermissionOverwrite(read_messages=False),
+                cargo_familia: discord.PermissionOverwrite(read_messages=True, send_messages=True, read_message_history=True, connect=True)
+            }
+
             if not categoria:
-                # Permissões Base da Categoria: Privada para a Família
-                overwrites_base = {
-                    guild.default_role: discord.PermissionOverwrite(read_messages=False),
-                    cargo_familia: discord.PermissionOverwrite(read_messages=True, send_messages=True, read_message_history=True, connect=True)
-                }
                 categoria = await guild.create_category(nome_cat, overwrites=overwrites_base)
 
-                # A) Canal de Anúncios (📜) - Apenas Capo e Admins podem escrever
+            # A) Canal de Anúncios (📜)
+            canal_anuncios = discord.utils.get(categoria.text_channels, name="📜-capo-announcements")
+            if not canal_anuncios:
                 overwrites_announcements = {
                     guild.default_role: discord.PermissionOverwrite(read_messages=False),
                     cargo_familia: discord.PermissionOverwrite(read_messages=True, send_messages=False),
@@ -151,14 +171,18 @@ class CapoRegistryView(discord.ui.View):
                     topic=f"Official announcements for {nome_familia}."
                 )
 
-                # B) Chat Geral (💬)
+            # B) Chat Geral (💬)
+            canal_chat = discord.utils.get(categoria.text_channels, name="💬-general-chat")
+            if not canal_chat:
                 await guild.create_text_channel(
                     "💬-general-chat", 
                     category=categoria, 
                     topic=f"Secret HQ text chat for {nome_familia}."
                 )
 
-                # C) Canal de Voz / Sala de Reuniões (📢)
+            # C) Canal de Voz (📢)
+            canal_voz = discord.utils.get(categoria.voice_channels, name="📢-meeting-room")
+            if not canal_voz:
                 await guild.create_voice_channel(
                     "📢-meeting-room", 
                     category=categoria
@@ -166,7 +190,7 @@ class CapoRegistryView(discord.ui.View):
 
             await interaction.response.send_message(
                 f"🍷 **Honra e Lealdade!** Assumiste o comando da **{nome_familia}**!\n"
-                f"📂 Categoria e canais criados: `📜-capo-announcements`, `💬-general-chat` e `📢-meeting-room`!", 
+                f"📂 QG configurado com sucesso: `📜-capo-announcements`, `💬-general-chat` e `📢-meeting-room`!", 
                 ephemeral=True
             )
 
@@ -178,7 +202,8 @@ class CapoRegistryView(discord.ui.View):
             )
 
         except discord.Forbidden:
-            await interaction.response.send_message("❌ O bot não tem permissões para gerenciar cargos/canais. Garante que o bot tem a permissão de Administrador.", ephemeral=True)
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ O bot não tem permissões para gerenciar cargos/canais. Garante que o bot tem a permissão de Administrador.", ephemeral=True)
 
     @discord.ui.button(label="Corleone", style=discord.ButtonStyle.primary, emoji="🍷", custom_id="capo_corleone", row=1)
     async def capo_corleone(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -264,7 +289,8 @@ class SoldierEnlistView(discord.ui.View):
                 discord.Color.blue()
             )
         except discord.Forbidden:
-            await interaction.response.send_message("❌ O bot não tem permissão para alterar cargos. Ajusta a hierarquia de cargos no Discord.", ephemeral=True)
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ O bot não tem permissão para alterar cargos. Ajusta a hierarquia de cargos no Discord.", ephemeral=True)
 
     @discord.ui.button(label="Corleone", style=discord.ButtonStyle.success, emoji="🗡️", custom_id="soldier_corleone", row=1)
     async def soldier_corleone(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -287,20 +313,7 @@ class SoldierEnlistView(discord.ui.View):
         await self.handle_soldier_join(interaction, "bonanno")
 
 
-# --- SISTEMA DE LOGS E AUDITORIA DA MÁFIA ---
-
-async def enviar_log_mafia(guild: discord.Guild, titulo: str, descricao: str, cor: discord.Color):
-    """Envia um registo de atividade para o canal privado de logs."""
-    canal_log = discord.utils.get(guild.text_channels, name="🕶️-mafia-logs")
-    if canal_log:
-        embed = discord.Embed(
-            title=titulo,
-            description=descricao,
-            color=cor,
-            timestamp=discord.utils.utcnow()
-        )
-        embed.set_footer(text="Máfia System • Registro de Lealdade")
-        await canal_log.send(embed=embed)
+# --- COMANDOS DE SETUP E RELATÓRIO ---
 
 @bot.command(name="setup_logs")
 @commands.has_permissions(administrator=True)
@@ -361,8 +374,6 @@ async def status_familias(ctx):
         )
 
     await ctx.send(embed=embed)
-
-# --- COMANDOS DE SETUP ---
 
 @bot.command(name="setup_capo")
 @commands.has_permissions(administrator=True)
