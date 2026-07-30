@@ -82,7 +82,7 @@ class CapoRegistryView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Ler Pacto no meu idioma", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="translate_omerta_capo", row=0)
+    @discord.ui.button(label="Read Omertà in my language", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="translate_omerta_capo", row=0)
     async def translate_omerta(self, interaction: discord.Interaction, button: discord.ui.Button):
         user_locale = str(interaction.locale).split("-")[0]
         pacto_texto = (
@@ -126,7 +126,7 @@ class CapoRegistryView(discord.ui.View):
             # 1. Atribui o cargo ao Capo
             await member.add_roles(cargo_familia)
 
-            # 2. Criação Dinâmica da Categoria e Canais
+            # 2. Criação Dinâmica da Categoria e Canais em Inglês
             nome_cat = f"🍷 {nome_familia.upper()}"
             categoria = discord.utils.get(guild.categories, name=nome_cat)
 
@@ -138,23 +138,35 @@ class CapoRegistryView(discord.ui.View):
                 }
                 categoria = await guild.create_category(nome_cat, overwrites=overwrites_base)
 
-                # A) Canal de Anúncios (Apenas o Capo e Admins podem escrever; Soldados só leem)
-                overwrites_anuncios = {
+                # A) Canal de Anúncios (📜) - Apenas Capo e Admins podem escrever
+                overwrites_announcements = {
                     guild.default_role: discord.PermissionOverwrite(read_messages=False),
                     cargo_familia: discord.PermissionOverwrite(read_messages=True, send_messages=False),
                     cargo_capo: discord.PermissionOverwrite(read_messages=True, send_messages=True)
                 }
-                await guild.create_text_channel("📢-anuncios-capo", category=categoria, overwrites=overwrites_anuncios, topic=f"Anúncios oficiais da liderança da {nome_familia}.")
+                await guild.create_text_channel(
+                    "📜-capo-announcements", 
+                    category=categoria, 
+                    overwrites=overwrites_announcements, 
+                    topic=f"Official announcements for {nome_familia}."
+                )
 
-                # B) Chat Geral de Texto
-                await guild.create_text_channel("💬-chat-geral", category=categoria, topic=f"Sede secreta de conversação da {nome_familia}.")
+                # B) Chat Geral (💬)
+                await guild.create_text_channel(
+                    "💬-general-chat", 
+                    category=categoria, 
+                    topic=f"Secret HQ text chat for {nome_familia}."
+                )
 
-                # C) Canal de Voz Privado
-                await guild.create_voice_channel("🔊-sala-de-reuniao", category=categoria)
+                # C) Canal de Voz / Sala de Reuniões (📢)
+                await guild.create_voice_channel(
+                    "📢-meeting-room", 
+                    category=categoria
+                )
 
             await interaction.response.send_message(
                 f"🍷 **Honra e Lealdade!** Assumiste o comando da **{nome_familia}**!\n"
-                f"📂 A Categoria privada e os canais (Anúncios, Chat e Voz) foram criados para a tua Família!", 
+                f"📂 Categoria e canais criados: `📜-capo-announcements`, `💬-general-chat` e `📢-meeting-room`!", 
                 ephemeral=True
             )
 
@@ -194,7 +206,7 @@ class SoldierEnlistView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Ler Pacto no meu idioma", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="translate_omerta_soldier", row=0)
+    @discord.ui.button(label="Read Omertà in my language", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="translate_omerta_soldier", row=0)
     async def translate_omerta(self, interaction: discord.Interaction, button: discord.ui.Button):
         user_locale = str(interaction.locale).split("-")[0]
         pacto_texto = (
