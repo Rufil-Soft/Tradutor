@@ -9,32 +9,31 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Classe do Botão Interativo com as setas em sentidos opostos ⇄
+# Classe do Botão Interativo com as setas opostas ⇄
 class TranslateView(discord.ui.View):
     def __init__(self):
-        super().__init__(timeout=None) # O botão nunca expira
+        super().__init__(timeout=None) # O botão continua ativo mesmo após reiniciar
 
-    # Adiciona o botão com o ícone de setas opostas ⇄
     @discord.ui.button(label="Traduzir", style=discord.ButtonStyle.secondary, emoji="⇄", custom_id="translate_button")
     async def translate_button_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Pega a mensagem original onde o botão está anexado
+        # Pega a mensagem original
         message_text = interaction.message.content
 
         if not message_text:
             await interaction.response.send_message("Não há texto para traduzir nesta mensagem.", ephemeral=True)
             return
 
-        # Detecta o idioma do Discord do utilizador que clicou (ex: 'pt-PT' vira 'pt')
+        # Pega o idioma do cliente Discord da pessoa que clicou (ex: 'pt-PT' vira 'pt')
         user_locale = str(interaction.locale).split("-")[0]
 
         try:
-            # Traduz para o idioma da interface do utilizador que clicou no botão
+            # Traduz para o idioma do utilizador
             translated = await asyncio.to_thread(
                 GoogleTranslator(source='auto', target=user_locale).translate,
                 message_text
             )
 
-            # Responde APENAS para quem clicou (Mensagem Efêmera)
+            # Responde APENAS para a pessoa que clicou (mensagem invisível para os outros)
             await interaction.response.send_message(
                 f"🔠 **Tradução ({user_locale.upper()}):**\n{translated}", 
                 ephemeral=True
@@ -45,23 +44,19 @@ class TranslateView(discord.ui.View):
 
 @bot.event
 async def on_ready():
-    # Regista a view persistente para os botões continuarem a funcionar após reinícios
     bot.add_view(TranslateView())
     print(f"Bot tradutor interativo ligado como {bot.user}")
 
 @bot.event
 async def on_message(message):
-    # Ignora mensagens enviadas por bots
     if message.author.bot:
         return
 
-    # Processa comandos caso adicione algum
     await bot.process_commands(message)
 
-    # Se a mensagem tiver texto, anexa o botão das setas ⇄
+    # Quando alguém envia mensagem, o bot substitui a mensagem anexando o botão ⇄
     if message.content and not message.content.startswith(bot.command_prefix):
-        await message.channel.send(content=message.content, view=TranslateView())
-        # Opcional: apaga a mensagem original do utilizador para não duplicar no chat
+        await message.channel.send(content=f"**{message.author.display_name}**: {message.content}", view=TranslateView())
         try:
             await message.delete()
         except Exception:
