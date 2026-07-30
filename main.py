@@ -185,6 +185,9 @@ class CapoRegistryView(discord.ui.View):
             await interaction.response.send_message(f"⚠️ A **{nome_familia}** já tem um Capo a liderá-la ({capos_na_familia[0].display_name})!", ephemeral=True)
             return
 
+        # 🛑 EVITA O TIMEOUT DE 3 SEGUNDOS DO DISCORD
+        await interaction.response.defer(ephemeral=True)
+
         try:
             await member.add_roles(cargo_familia)
 
@@ -224,7 +227,7 @@ class CapoRegistryView(discord.ui.View):
                     "🚨-warnings", 
                     category=categoria, 
                     overwrites=overwrites_warnings, 
-                    topic=f"Canal de warnings vindos da Cúpula (Don/Capodecinas) exclusivo para o Capo da {nome_familia}."
+                    topic=f"Canal de warnings vindos da Cúpula exclusivo para o Capo da {nome_familia}."
                 )
             else:
                 await canal_warnings.set_permissions(member, read_messages=True, send_messages=False, read_message_history=True)
@@ -244,7 +247,7 @@ class CapoRegistryView(discord.ui.View):
                     category=categoria
                 )
 
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"🍷 **Honra e Lealdade!** Assumiste o comando da **{nome_familia}**!\n"
                 f"📂 QG configurado com sucesso (`📜-capo-announcements`, `🚨-warnings`, `💬-general-chat`, `📢-meeting-room`)!", 
                 ephemeral=True
@@ -258,8 +261,7 @@ class CapoRegistryView(discord.ui.View):
             )
 
         except discord.Forbidden:
-            if not interaction.response.is_done():
-                await interaction.response.send_message("❌ O bot não tem permissões para gerenciar cargos/canais. Garante que o bot tem a permissão de Administrador.", ephemeral=True)
+            await interaction.followup.send("❌ O bot não tem permissões para gerenciar cargos/canais. Garante que o bot tem a permissão de Administrador.", ephemeral=True)
 
     @discord.ui.button(label="Corleone", style=discord.ButtonStyle.primary, emoji="🍷", custom_id="capo_corleone", row=1)
     async def capo_corleone(self, interaction: discord.Interaction, button: discord.ui.Button):
