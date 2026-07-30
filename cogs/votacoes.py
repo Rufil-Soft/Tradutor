@@ -26,15 +26,15 @@ def build_resultado_futurista_embed(grupo: dict, guild: discord.Guild, final: bo
     
     status_titulo = "⚡ [ SISTEMA CÚPULA ] // RELATÓRIO FINAL" if final else "📡 [ SISTEMA CÚPULA ] // ACOMPANHAMENTO EM TEMPO REAL"
     cor = discord.Color.from_rgb(0, 240, 255) if final else discord.Color.gold()
+    status_txt = "FINALIZADO & ENCRIPTADO" if final else "EM PROCESSAMENTO"
     
     embed = discord.Embed(
         title=status_titulo,
-        description=f"```yaml\nSESSÃO: #{grupo.get('id', 'SYS-88')}\nPERGUNTA: {grupo['pergunta']}\nSTATUS: {'FINALIZADO & ENCRIPTADO' if final else 'EM PROCESSAMENTO'}\n```",
+        description=f"```yaml\nSESSÃO: #{grupo.get('id', 'SYS-88')}\nPERGUNTA: {grupo['pergunta']}\nSTATUS: {status_txt}\n```",
         color=cor,
         timestamp=discord.utils.utcnow()
     )
 
-    # Se for o relatório final e houver votos, destaca a opção vencedora
     if final and total_votos > 0:
         top_idx = max(grupo["votos"], key=grupo["votos"].get)
         vencedor_txt = grupo["opcoes"][top_idx]
@@ -51,12 +51,11 @@ def build_resultado_futurista_embed(grupo: dict, guild: discord.Guild, final: bo
             inline=False
         )
 
-    # Barras de Progresso Tecnológicas
     linhas_progresso = []
     for idx, opcao in enumerate(grupo["opcoes"]):
         votos = grupo["votos"].get(idx, 0)
         pct = (votos / total_votos * 100) if total_votos else 0
-        barra_len = int(pct / 10)  # 10 blocos de precisão
+        barra_len = int(pct / 10)
         barra = "▓" * barra_len + "░" * (10 - barra_len)
         linhas_progresso.append(f"`[{barra}]` **{pct:.1f}%** ── **{opcao}** `({votos}v)`")
 
@@ -66,10 +65,10 @@ def build_resultado_futurista_embed(grupo: dict, guild: discord.Guild, final: bo
         inline=False
     )
 
-    # Painel de Métricas de Tráfego
-    metricas = (
-        f"```ini\n"
-        f"[Votos Registados] : {total_votos}\n"
-        f"[Membros Elegíveis]: {elegiveis}\n"
-        f"[Taxa de Adesão]   : {taxa_adesao:.1f}%\n"
-        f"
+    # Métricas formatadas em string única e limpa para evitar SyntaxError
+    metricas = f"```ini\n[Votos Registados] : {total_votos}\n[Membros Elegíveis]: {elegiveis}\n[Taxa de Adesão]   : {taxa_adesao:.1f}%\n```"
+    embed.add_field(name="⚙️ MÉTRICAS DE QUÓRUM", value=metricas, inline=False)
+    
+    familias_txt = ", ".join(v["familia"] for v in grupo["member_polls"].values()) or "Nenhuma"
+    embed.set_footer(text=f"SISTEMA OMERTA // Famílias Sincronizadas: {familias_txt}")
+    return embed
