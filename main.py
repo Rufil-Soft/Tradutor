@@ -403,16 +403,16 @@ class DonPollModal(discord.ui.Modal, title="Criar Votação Oficial da Cúpula")
         raw_opcoes = [o.strip() for o in self.opcoes.value.split(",") if o.strip()]
 
         if len(raw_opcoes) < 2:
-            await interaction.followup.send("❌ Tens de fornecer pelo menos 2 opções válidas separadas por vírgula.", ephemeral=True)
+            await interaction.followup.send("❌ Tens de fornecer pelo menos 2 opções.", ephemeral=True)
             return
         if len(raw_opcoes) > 10:
-            await interaction.followup.send("❌ O Discord permite no máximo 10 opções por votação.", ephemeral=True)
+            await interaction.followup.send("❌ Máximo de 10 opções.", ephemeral=True)
             return
 
         guild = interaction.guild
-        # Dicionário para guardar o resultado de cada família
         resultado = {}
 
+        # --- PROPAGAÇÃO PARA AS FAMÍLIAS ---
         for familia_key, nome_familia in FAMILIAS.items():
             nome_cat = f"🍷 {nome_familia.upper()}"
             categoria = discord.utils.get(guild.categories, name=nome_cat)
@@ -420,89 +420,76 @@ class DonPollModal(discord.ui.Modal, title="Criar Votação Oficial da Cúpula")
                 resultado[nome_familia] = "❌ Categoria não encontrada (sem QG)"
                 continue
 
-            canal_votacoes = discord.utils.get(categoria.text_channels, name="🗳️-votações")
-            if not canal_votacoes:
+            canal = discord.utils.get(categoria.text_channels, name="🗳️-votações")
+            if not canal:
                 resultado[nome_familia] = "❌ Canal 🗳️-votações não encontrado"
                 continue
 
-            # Verificar permissões do bot no canal
-            perms = canal_votacoes.permissions_for(guild.me)
+            perms = canal.permissions_for(guild.me)
             if not perms.send_messages:
-                resultado[nome_familia] = "❌ Bot sem permissão 'Send Messages'"
-                continue
-            if not perms.create_polls:
-                resultado[nome_familia] = "❌ Bot sem permissão 'Create Polls' (adiciona esta permissão no canal!)"
+                resultado[nome_familia] = "❌ Sem permissão 'Send Messages'"
                 continue
 
-            # Criar poll
-            poll = discord.Poll(question=pergunta_texto, duration=timedelta(hours=24))
-            for opt in raw_opcoes:
-                poll.add_answer(text=opt)
-
-            # Tentar enviar com até 2 tentativas (para rate limit)
-            for tentativa in range(2):
+            try:
+                poll = discord.Poll(question=pergunta_texto, duration=timedelta(hours=24))
+                for opt in raw_opcoes:
+                    poll.add_answer(text=opt)
+                await canal.send(
+                    content=f"🗳️ **VOTAÇÃO DA CÚPULA** (Aberta por {interaction.user.mention})",
+                    poll=poll
+                )
+                resultado[nome_familia] = "✅ Sucesso"
+                await asyncio.sleep(1)
+            except Exception as e:
+                # Fallback por reações se a poll nativa falhar
                 try:
-                    await canal_votacoes.send(
-                        content=f"🗳️ **VOTAÇÃO DA CÚPULA** (Aberta por {interaction.user.mention})",
-                        poll=poll
+                    emojis = ["1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"]
+                    descricao = "\n".join([f"{emojis[i]} {op}" for i, op in enumerate(raw_opcoes)])
+                    embed = discord.Embed(
+                        title=f"🗳️ {pergunta_texto}",
+                        description=f"**VOTAÇÃO DA CÚPULA** (Aberta por {interaction.user.mention})\n\n{descricao}",
+                        color=discord.Color.gold()
                     )
-                    resultado[nome_familia] = "✅ Sucesso"
-                    await asyncio.sleep(1)  # pausa entre famílias
-                    break
-                except discord.Forbidden:
-                    resultado[nome_familia] = "❌ Bot sem permissão para enviar polls (403 Forbidden). Verifica 'Create Polls' no canal."
-                    break
-                except discord.HTTPException as e:
-                    if e.status == 429:
-                        retry_after = getattr(e, 'retry_after', 5)
-                        print(f"Rate limit para {nome_familia}, aguardando {retry_after}s...")
-                        await asyncio.sleep(retry_after)
-                        continue
-                    else:
-                        resultado[nome_familia] = f"❌ Erro HTTP {e.status}"
-                        break
-                except Exception as e:
-                    resultado[nome_familia] = f"❌ Erro: {str(e)[:50]}"
-                    break
-            else:
-                # Se o loop esgotar as tentativas sem sucesso
-                resultado[nome_familia] = "❌ Falha após retentativa de rate limit"
+                    msg = await canal.send(embed=embed)
+                    for i in range(len(raw_opcoes)):
+                        await msg.add_reaction(emojis[i])
+                    resultado[nome_familia] = "✅ Sucesso (por reações)"
+                    await asyncio.sleep(1)
+                except Exception as fallback_error:
+                    resultado[nome_familia] = f"❌ Falhou: {str(fallback_error)[:60]}"
 
-        # Construir resposta final
-        sucessos = [f for f, r in resultado.items() if r == "✅ Sucesso"]
-        falhas = {f: r for f, r in resultado.items() if r != "✅ Sucesso"}
+        # --- ENVIAR TAMBÉM NO CANAL ONDE O /VOTACAO FOI USADO ---
+        canal_origem = interaction.channel
+        if canal_origem:
+            perms_origem = canal_origem.permissions_for(guild.me)
+            if perms_origem.send_messages:
+                try:
+                    poll_origem = discord.Poll(question=pergunta_texto, duration=timedelta(hours=24))
+                    for opt in raw_opcoes:
+                        poll_origem.add_answer(text=opt)
+                    await canal_origem.send(
+                        content=f"🗳️ **VOTAÇÃO OFICIAL DA CÚPULA** (Criada por {interaction.user.mention})",
+                        poll=poll_origem
+                    )
+                    # Não adiciona ao dicionário porque não é uma família, mas podes logar se quiseres
+                except Exception:
+                    pass  # Silencioso; o importante são as famílias
+
+        # --- RESPOSTA PRIVADA AO UTILIZADOR ---
+        sucessos = [f for f, r in resultado.items() if "Sucesso" in r]
+        falhas = {f: r for f, r in resultado.items() if "Sucesso" not in r}
 
         resposta = ""
         if sucessos:
-            resposta += f"✅ Votação propagada com sucesso para: **{', '.join(sucessos)}**.\n"
+            resposta += f"✅ Propagada para: **{', '.join(sucessos)}**.\n"
         if falhas:
-            resposta += "\n⚠️ **Problemas encontrados:**\n"
+            resposta += "\n⚠️ **Problemas:**\n"
             for fam, motivo in falhas.items():
                 resposta += f"• **{fam}**: {motivo}\n"
-
         if not sucessos and not falhas:
-            resposta = "⚠️ Nenhuma família foi processada."
+            resposta = "⚠️ Nenhuma família processada."
 
         await interaction.followup.send(resposta, ephemeral=True)
-
-
-@bot.tree.command(name="votacao", description="Abre um formulário para o Don criar uma votação global nas Famílias.")
-@commands.has_permissions(administrator=True)
-async def votacao_slash(interaction: discord.Interaction):
-    await interaction.response.send_modal(DonPollModal())
-
-
-# --- COMANDO SYNC PARA REGISTAR COMANDOS INSTANTANEAMENTE ---
-@bot.command(name="sync")
-@commands.has_permissions(administrator=True)
-async def sync_commands(ctx):
-    """Sincroniza os comandos de barra instantaneamente no servidor atual."""
-    try:
-        bot.tree.copy_global_to(guild=ctx.guild)
-        synced = await bot.tree.sync(guild=ctx.guild)
-        await ctx.send(f"✅ Sincronizados **{len(synced)}** comandos de barra instantaneamente neste servidor!")
-    except Exception as e:
-        await ctx.send(f"❌ Erro ao sincronizar comandos: {e}")
 
 
 # --- COMANDOS DE SETUP E RELATÓRIO ---
