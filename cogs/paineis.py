@@ -6,6 +6,7 @@ from config import FAMILIAS, LIMITE_SOLDIERS
 from cogs.logs import enviar_log_mafia
 from bot import bot
 
+
 class RanksView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -235,7 +236,6 @@ class Paineis(commands.Cog):
     @commands.command(name="setup_ranks")
     @commands.has_permissions(administrator=True)
     async def setup_ranks(self, ctx):
-        """Publica o painel hierárquico da organização."""
         await ctx.message.delete()
         embed = discord.Embed(
             title="🏛️ ORGANIZATION & HIERARCHY — COSA NOSTRA",
@@ -286,7 +286,6 @@ class Paineis(commands.Cog):
     @commands.command(name="setup_capo")
     @commands.has_permissions(administrator=True)
     async def setup_capo(self, ctx):
-        """Publica o painel de juramento e reivindicação dos Capos."""
         await ctx.message.delete()
         texto = (
             "# 🍷 THE CAPOREGIME OATH & CLAIM\n"
@@ -304,7 +303,6 @@ class Paineis(commands.Cog):
     @commands.command(name="setup_soldier")
     @commands.has_permissions(administrator=True)
     async def setup_soldier(self, ctx):
-        """Publica o painel de alistamento dos Soldados."""
         await ctx.message.delete()
         texto = (
             "# 🗡️ SOLDIER ENLISTMENT & OMERTA\n"
