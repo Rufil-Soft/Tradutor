@@ -381,7 +381,6 @@ class SoldierEnlistView(discord.ui.View):
 
 
 # --- SISTEMA DE VOTAÇÕES INTERATIVAS (MODAL + SLASH COMMAND) ---
-# VERSÃO MELHORADA COM FEEDBACK POR FAMÍLIA
 class DonPollModal(discord.ui.Modal, title="Criar Votação Oficial da Cúpula"):
     pergunta = discord.ui.TextInput(
         label="Pergunta da Votação",
@@ -397,100 +396,110 @@ class DonPollModal(discord.ui.Modal, title="Criar Votação Oficial da Cúpula")
     )
 
     async def on_submit(self, interaction: discord.Interaction):
+        # Resposta inicial para evitar timeout
         await interaction.response.defer(ephemeral=True)
+        
+        try:
+            pergunta_texto = self.pergunta.value
+            raw_opcoes = [o.strip() for o in self.opcoes.value.split(",") if o.strip()]
 
-        pergunta_texto = self.pergunta.value
-        raw_opcoes = [o.strip() for o in self.opcoes.value.split(",") if o.strip()]
+            if len(raw_opcoes) < 2:
+                await interaction.followup.send("❌ Tens de fornecer pelo menos 2 opções.", ephemeral=True)
+                return
+            if len(raw_opcoes) > 10:
+                await interaction.followup.send("❌ Máximo de 10 opções.", ephemeral=True)
+                return
 
-        if len(raw_opcoes) < 2:
-            await interaction.followup.send("❌ Tens de fornecer pelo menos 2 opções.", ephemeral=True)
-            return
-        if len(raw_opcoes) > 10:
-            await interaction.followup.send("❌ Máximo de 10 opções.", ephemeral=True)
-            return
+            guild = interaction.guild
+            resultado = {}
 
-        guild = interaction.guild
-        resultado = {}
+            # --- PROPAGAÇÃO PARA AS FAMÍLIAS ---
+            for familia_key, nome_familia in FAMILIAS.items():
+                nome_cat = f"🍷 {nome_familia.upper()}"
+                categoria = discord.utils.get(guild.categories, name=nome_cat)
+                if not categoria:
+                    resultado[nome_familia] = "❌ Categoria não encontrada (sem QG)"
+                    continue
 
-        # --- PROPAGAÇÃO PARA AS FAMÍLIAS ---
-        for familia_key, nome_familia in FAMILIAS.items():
-            nome_cat = f"🍷 {nome_familia.upper()}"
-            categoria = discord.utils.get(guild.categories, name=nome_cat)
-            if not categoria:
-                resultado[nome_familia] = "❌ Categoria não encontrada (sem QG)"
-                continue
+                canal = discord.utils.get(categoria.text_channels, name="🗳️-votações")
+                if not canal:
+                    resultado[nome_familia] = "❌ Canal 🗳️-votações não encontrado"
+                    continue
 
-            canal = discord.utils.get(categoria.text_channels, name="🗳️-votações")
-            if not canal:
-                resultado[nome_familia] = "❌ Canal 🗳️-votações não encontrado"
-                continue
+                perms = canal.permissions_for(guild.me)
+                if not perms.send_messages:
+                    resultado[nome_familia] = "❌ Sem permissão 'Send Messages'"
+                    continue
 
-            perms = canal.permissions_for(guild.me)
-            if not perms.send_messages:
-                resultado[nome_familia] = "❌ Sem permissão 'Send Messages'"
-                continue
-
-            try:
-                poll = discord.Poll(question=pergunta_texto, duration=timedelta(hours=24))
-                for opt in raw_opcoes:
-                    poll.add_answer(text=opt)
-                await canal.send(
-                    content=f"🗳️ **VOTAÇÃO DA CÚPULA** (Aberta por {interaction.user.mention})",
-                    poll=poll
-                )
-                resultado[nome_familia] = "✅ Sucesso"
-                await asyncio.sleep(1)
-            except Exception as e:
-                # Fallback por reações se a poll nativa falhar
+                # Tentar poll nativa; se falhar, usar reações
                 try:
-                    emojis = ["1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"]
-                    descricao = "\n".join([f"{emojis[i]} {op}" for i, op in enumerate(raw_opcoes)])
-                    embed = discord.Embed(
-                        title=f"🗳️ {pergunta_texto}",
-                        description=f"**VOTAÇÃO DA CÚPULA** (Aberta por {interaction.user.mention})\n\n{descricao}",
-                        color=discord.Color.gold()
-                    )
-                    msg = await canal.send(embed=embed)
-                    for i in range(len(raw_opcoes)):
-                        await msg.add_reaction(emojis[i])
-                    resultado[nome_familia] = "✅ Sucesso (por reações)"
-                    await asyncio.sleep(1)
-                except Exception as fallback_error:
-                    resultado[nome_familia] = f"❌ Falhou: {str(fallback_error)[:60]}"
-
-        # --- ENVIAR TAMBÉM NO CANAL ONDE O /VOTACAO FOI USADO ---
-        canal_origem = interaction.channel
-        if canal_origem:
-            perms_origem = canal_origem.permissions_for(guild.me)
-            if perms_origem.send_messages:
-                try:
-                    poll_origem = discord.Poll(question=pergunta_texto, duration=timedelta(hours=24))
+                    poll = discord.Poll(question=pergunta_texto, duration=timedelta(hours=24))
                     for opt in raw_opcoes:
-                        poll_origem.add_answer(text=opt)
-                    await canal_origem.send(
-                        content=f"🗳️ **VOTAÇÃO OFICIAL DA CÚPULA** (Criada por {interaction.user.mention})",
-                        poll=poll_origem
+                        poll.add_answer(text=opt)
+                    await canal.send(
+                        content=f"🗳️ **VOTAÇÃO DA CÚPULA** (Aberta por {interaction.user.mention})",
+                        poll=poll
                     )
-                    # Não adiciona ao dicionário porque não é uma família, mas podes logar se quiseres
+                    resultado[nome_familia] = "✅ Sucesso"
                 except Exception:
-                    pass  # Silencioso; o importante são as famílias
+                    # Fallback por reações
+                    try:
+                        emojis = ["1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"]
+                        descricao = "\n".join([f"{emojis[i]} {op}" for i, op in enumerate(raw_opcoes)])
+                        embed = discord.Embed(
+                            title=f"🗳️ {pergunta_texto}",
+                            description=f"**VOTAÇÃO DA CÚPULA** (Aberta por {interaction.user.mention})\n\n{descricao}",
+                            color=discord.Color.gold()
+                        )
+                        msg = await canal.send(embed=embed)
+                        for i in range(len(raw_opcoes)):
+                            await msg.add_reaction(emojis[i])
+                        resultado[nome_familia] = "✅ Sucesso (por reações)"
+                    except Exception as e:
+                        resultado[nome_familia] = f"❌ Falhou: {str(e)[:60]}"
+                await asyncio.sleep(1)  # Pausa entre famílias
 
-        # --- RESPOSTA PRIVADA AO UTILIZADOR ---
-        sucessos = [f for f, r in resultado.items() if "Sucesso" in r]
-        falhas = {f: r for f, r in resultado.items() if "Sucesso" not in r}
+            # --- ENVIAR TAMBÉM NO CANAL ONDE O /VOTACAO FOI USADO ---
+            canal_origem = interaction.channel
+            if canal_origem:
+                perms_origem = canal_origem.permissions_for(guild.me)
+                if perms_origem.send_messages:
+                    try:
+                        poll_origem = discord.Poll(question=pergunta_texto, duration=timedelta(hours=24))
+                        for opt in raw_opcoes:
+                            poll_origem.add_answer(text=opt)
+                        await canal_origem.send(
+                            content=f"🗳️ **VOTAÇÃO OFICIAL DA CÚPULA** (Criada por {interaction.user.mention})",
+                            poll=poll_origem
+                        )
+                    except Exception:
+                        pass  # Ignorar falha no canal de origem
 
-        resposta = ""
-        if sucessos:
-            resposta += f"✅ Propagada para: **{', '.join(sucessos)}**.\n"
-        if falhas:
-            resposta += "\n⚠️ **Problemas:**\n"
-            for fam, motivo in falhas.items():
-                resposta += f"• **{fam}**: {motivo}\n"
-        if not sucessos and not falhas:
-            resposta = "⚠️ Nenhuma família processada."
+            # --- RESPOSTA PRIVADA AO UTILIZADOR ---
+            sucessos = [f for f, r in resultado.items() if "Sucesso" in r]
+            falhas = {f: r for f, r in resultado.items() if "Sucesso" not in r}
 
-        await interaction.followup.send(resposta, ephemeral=True)
+            resposta = ""
+            if sucessos:
+                resposta += f"✅ Propagada para: **{', '.join(sucessos)}**.\n"
+            if falhas:
+                resposta += "\n⚠️ **Problemas:**\n"
+                for fam, motivo in falhas.items():
+                    resposta += f"• **{fam}**: {motivo}\n"
+            if not sucessos and not falhas:
+                resposta = "⚠️ Nenhuma família processada."
 
+            await interaction.followup.send(resposta, ephemeral=True)
+
+        except Exception as erro:
+            # Captura qualquer erro inesperado e informa o utilizador
+            try:
+                await interaction.followup.send(
+                    f"❌ Ocorreu um erro inesperado ao criar a votação: {str(erro)[:200]}",
+                    ephemeral=True
+                )
+            except:
+                pass  # Última salvaguarda
 
 # --- COMANDOS DE SETUP E RELATÓRIO ---
 
