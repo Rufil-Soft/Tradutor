@@ -44,7 +44,6 @@ class DismissView(discord.ui.View):
     async def dismiss_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.delete_original_response()
         
-
 # --- SISTEMA DE TRADUÇÃO DAS MENSAGENS DO CHAT ---
 class TranslateView(discord.ui.View):
     def __init__(self):
@@ -69,10 +68,11 @@ class TranslateView(discord.ui.View):
                 GoogleTranslator(source='auto', target=user_locale).translate,
                 texto_para_traduzir
             )
-            await interaction.response.send_message(f"🔠 **Tradução ({user_locale.upper()}):**\n{translated}", 
-            view=DismissView(), 
-            ephemeral=True
-        )
+            await interaction.response.send_message(
+                f"🔠 **Tradução ({user_locale.upper()}):**\n{translated}", 
+                view=DismissView(), 
+                ephemeral=True
+            )
         except Exception:
             await interaction.response.send_message("Erro ao traduzir mensagem.", ephemeral=True)
 
