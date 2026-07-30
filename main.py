@@ -56,9 +56,12 @@ class TranslateView(discord.ui.View):
 
     @discord.ui.button(label="Traduzir", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="translate_button")
     async def translate_button_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # 🛑 EVITA TIMEOUT NA TRADUÇÃO
+        await interaction.response.defer(ephemeral=True)
+
         message_text = interaction.message.content
         if not message_text:
-            await interaction.response.send_message("Não há texto para traduzir.", ephemeral=True)
+            await interaction.followup.send("Não há texto para traduzir.", ephemeral=True)
             return
 
         if ":" in message_text:
@@ -73,13 +76,13 @@ class TranslateView(discord.ui.View):
                 GoogleTranslator(source='auto', target=user_locale).translate,
                 texto_para_traduzir
             )
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"🔠 **Tradução ({user_locale.upper()}):**\n{translated}", 
                 view=DismissView(), 
                 ephemeral=True
             )
         except Exception:
-            await interaction.response.send_message("Erro ao traduzir mensagem.", ephemeral=True)
+            await interaction.followup.send("Erro ao traduzir mensagem.", ephemeral=True)
 
 
 # --- SISTEMA DE LOGS E AUDITORIA DA MÁFIA (PROTEGIDO) ---
@@ -107,6 +110,9 @@ class RanksView(discord.ui.View):
 
     @discord.ui.button(label="Read Ranks in my language", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="translate_ranks", row=0)
     async def translate_ranks(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # 🛑 EVITA TIMEOUT NA TRADUÇÃO DOS RANKS
+        await interaction.response.defer(ephemeral=True)
+
         user_locale = str(interaction.locale).split("-")[0]
         ranks_texto = (
             "🏛️ **ORGANIZATION & HIERARCHY — COSA NOSTRA**\n\n"
@@ -135,9 +141,9 @@ class RanksView(discord.ui.View):
                 GoogleTranslator(source='auto', target=user_locale).translate,
                 ranks_texto
             )
-            await interaction.response.send_message(translated, ephemeral=True)
+            await interaction.followup.send(translated, ephemeral=True)
         except Exception:
-            await interaction.response.send_message(ranks_texto, ephemeral=True)
+            await interaction.followup.send(ranks_texto, ephemeral=True)
 
 
 # --- PAINEL DOS CAPOS (#capo-registry) ---
@@ -147,6 +153,9 @@ class CapoRegistryView(discord.ui.View):
 
     @discord.ui.button(label="Read Omertà in my language", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="translate_omerta_capo", row=0)
     async def translate_omerta(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # 🛑 EVITA TIMEOUT NA TRADUÇÃO DO OMERTA
+        await interaction.response.defer(ephemeral=True)
+
         user_locale = str(interaction.locale).split("-")[0]
         pacto_texto = (
             "📜 **O PACTO DE OMERTÀ DOS CAPOS**\n\n"
@@ -160,9 +169,9 @@ class CapoRegistryView(discord.ui.View):
                 GoogleTranslator(source='auto', target=user_locale).translate,
                 pacto_texto
             )
-            await interaction.response.send_message(translated, ephemeral=True)
+            await interaction.followup.send(translated, ephemeral=True)
         except Exception:
-            await interaction.response.send_message(pacto_texto, ephemeral=True)
+            await interaction.followup.send(pacto_texto, ephemeral=True)
 
     async def handle_capo_claim(self, interaction: discord.Interaction, familia_key: str):
         guild = interaction.guild
@@ -185,7 +194,7 @@ class CapoRegistryView(discord.ui.View):
             await interaction.response.send_message(f"⚠️ A **{nome_familia}** já tem um Capo a liderá-la ({capos_na_familia[0].display_name})!", ephemeral=True)
             return
 
-        # 🛑 EVITA O TIMEOUT DE 3 SEGUNDOS DO DISCORD
+        # 🛑 EVITA O TIMEOUT DE 3 SEGUNDOS AO CRIAR CATEGORIAS E CANAIS
         await interaction.response.defer(ephemeral=True)
 
         try:
@@ -291,6 +300,9 @@ class SoldierEnlistView(discord.ui.View):
 
     @discord.ui.button(label="Read Omertà in my language", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="translate_omerta_soldier", row=0)
     async def translate_omerta(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # 🛑 EVITA TIMEOUT NA TRADUÇÃO DO SOLDADO
+        await interaction.response.defer(ephemeral=True)
+
         user_locale = str(interaction.locale).split("-")[0]
         pacto_texto = (
             "📜 **O PACTO DE OMERTÀ DOS SOLDADOS**\n\n"
@@ -304,9 +316,9 @@ class SoldierEnlistView(discord.ui.View):
                 GoogleTranslator(source='auto', target=user_locale).translate,
                 pacto_texto
             )
-            await interaction.response.send_message(translated, ephemeral=True)
+            await interaction.followup.send(translated, ephemeral=True)
         except Exception:
-            await interaction.response.send_message(pacto_texto, ephemeral=True)
+            await interaction.followup.send(pacto_texto, ephemeral=True)
 
     async def handle_soldier_join(self, interaction: discord.Interaction, familia_key: str):
         guild = interaction.guild
@@ -332,6 +344,9 @@ class SoldierEnlistView(discord.ui.View):
             await interaction.response.send_message(f"⚠️ A **{nome_familia}** já está cheia ({LIMITE_SOLDIERS}/{LIMITE_SOLDIERS} Soldados)!", ephemeral=True)
             return
 
+        # 🛑 EVITA TIMEOUT AO MUDAR CARGOS
+        await interaction.response.defer(ephemeral=True)
+
         try:
             for f_nome in FAMILIAS.values():
                 c_antigo = discord.utils.get(guild.roles, name=f_nome)
@@ -339,7 +354,7 @@ class SoldierEnlistView(discord.ui.View):
                     await member.remove_roles(c_antigo)
 
             await member.add_roles(cargo_familia)
-            await interaction.response.send_message(f"🗡️ Bem-vindo à **{nome_familia}**! Cumpre o Pacto de Omertà e obedece ao teu Capo.", ephemeral=True)
+            await interaction.followup.send(f"🗡️ Bem-vindo à **{nome_familia}**! Cumpre o Pacto de Omertà e obedece ao teu Capo.", ephemeral=True)
             await enviar_log_mafia(
                 guild, 
                 "🗡️ NOVO SOLDADO ALISTADO", 
@@ -347,8 +362,7 @@ class SoldierEnlistView(discord.ui.View):
                 discord.Color.blue()
             )
         except discord.Forbidden:
-            if not interaction.response.is_done():
-                await interaction.response.send_message("❌ O bot não tem permissão para alterar cargos. Ajusta a hierarquia de cargos no Discord.", ephemeral=True)
+            await interaction.followup.send("❌ O bot não tem permissão para alterar cargos. Ajusta a hierarquia de cargos no Discord.", ephemeral=True)
 
     @discord.ui.button(label="Corleone", style=discord.ButtonStyle.success, emoji="🗡️", custom_id="soldier_corleone", row=1)
     async def soldier_corleone(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -376,7 +390,6 @@ class SoldierEnlistView(discord.ui.View):
 @bot.command(name="setup_logs")
 @commands.has_permissions(administrator=True)
 async def setup_logs(ctx):
-    """Cria o canal privado de logs para a Staff e Don."""
     guild = ctx.guild
     nome_canal = "🕶️-mafia-logs"
     
@@ -405,7 +418,6 @@ async def setup_logs(ctx):
 @bot.command(name="setup_capos_message")
 @commands.has_permissions(administrator=True)
 async def setup_capos_message(ctx):
-    """Cria o canal central onde a Cúpula envia avisos para propagar a todas as Famílias."""
     guild = ctx.guild
     nome_canal = "🎯-capos-message"
     
@@ -438,7 +450,6 @@ async def setup_capos_message(ctx):
 @bot.command(name="status_familias")
 @commands.has_permissions(administrator=True)
 async def status_familias(ctx):
-    """Exibe um relatório detalhado de todas as Famílias, Capos e número de Soldados."""
     guild = ctx.guild
     cargo_capo = discord.utils.get(guild.roles, name="Capo")
     cargo_soldier = discord.utils.get(guild.roles, name="Soldier")
@@ -471,7 +482,6 @@ async def status_familias(ctx):
 @bot.command(name="setup_ranks")
 @commands.has_permissions(administrator=True)
 async def setup_ranks(ctx):
-    """Cria um painel elegante e imersivo explicando a hierarquia e os ranks da Máfia em inglês."""
     await ctx.message.delete()
     
     embed = discord.Embed(
@@ -580,7 +590,6 @@ async def on_message(message):
     if message.author.bot:
         return
         
-    # --- SISTEMA DE PROPAGAÇÃO DE MENSAGENS (CAPOS MESSAGE -> WARNINGS) ---
     if message.channel.name == "🎯-capos-message":
         propagated_count = 0
         for familia_key, nome_familia in FAMILIAS.items():
