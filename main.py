@@ -549,7 +549,7 @@ async def on_message(message):
                 if canal_warnings:
                     try:
                         embed = discord.Embed(
-                            title="🚨 COMUNICADO OFICIAL DA CÚPULA",
+                            title="🚨 DON Message",
                             description=message.content,
                             color=discord.Color.dark_red(),
                             timestamp=discord.utils.utcnow()
