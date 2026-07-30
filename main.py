@@ -1,6 +1,8 @@
 import os
 import asyncio
 import traceback
+import discord  # <--- Adicionado
+from discord import app_commands  # <--- Adicionado (Corrige o erro NameError)
 from bot import bot
 from servidor_dummy import start_dummy_server
 
@@ -10,8 +12,8 @@ COGS = [
     "cogs.traducao",
     "cogs.votacoes",
     "cogs.paineis",
-    "cogs.comandos_setup",           # carrega primeiro, outros dependem dele
-   ]
+    "cogs.comandos_setup",   # carrega primeiro, outros dependem dele
+]
 
 async def load_extensions():
     """Carrega cada cog individualmente, mostrando erros sem parar o bot."""
