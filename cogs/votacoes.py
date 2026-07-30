@@ -23,13 +23,18 @@ def build_resultado_embed(grupo: dict, guild: discord.Guild) -> discord.Embed:
     total = sum(grupo["votos"].values())
     elegiveis = contar_elegiveis(guild)
     faltam = max(elegiveis - total, 0)
-    embed = discord.Embed(title=f"📊 Resultado Agregado — {grupo['pergunta']}", color=discord.Color.dark_gold(), timestamp=discord.utils.utcnow())
+    embed = discord.Embed(
+        title=f"📊 Resultado Agregado — {grupo['pergunta']}", 
+        color=discord.Color.dark_gold(), 
+        timestamp=discord.utils.utcnow()
+    )
     for idx, opcao in enumerate(grupo["opcoes"]):
         votos = grupo["votos"].get(idx, 0)
         pct = (votos / total * 100) if total else 0
         barra_len = int(pct / 5)
         barra = "█" * barra_len + "░" * (20 - barra_len)
         embed.add_field(name=opcao, value=f"`{barra}` **{votos}** votos ({pct:.1f}%)", inline=False)
+    
     familias_txt = ", ".join(v["familia"] for v in grupo["member_polls"].values()) or "Nenhuma"
     embed.add_field(name="🗳️ Participação", value=f"Votaram: **{total}**\nElegíveis: **{elegiveis}**\nFaltam: **{faltam}**", inline=False)
     embed.set_footer(text=f"Famílias: {familias_txt}")
@@ -56,19 +61,8 @@ def limpar_grupo(group_id: str):
     for message_id in grupo["member_polls"].keys():
         message_to_group.pop(message_id, None)
 
-class DeleteResultView(discord.ui.View):
-    def __init__(self, group_id: str):
-        super().__init__(timeout=None)
-        self.group_id = group_id
-    @discord.ui.button(label="Delete", style=discord.ButtonStyle.danger, emoji="🗑️")
-    async def delete_result(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("Only administrators can delete the result.", ephemeral=True)
-            return
-        await interaction.message.delete()
-        limpar_grupo(self.group_id)
 
-class DonPollModal(ui.Modal, title="Criar Votação Oficial da Cúpula"):
+class DonPollModal(ui.Modal, title="Criar Votação Oficial"):
     pergunta = ui.TextInput(label="Pergunta da Votação", placeholder="Ex: A que horas atacamos?", style=discord.TextStyle.short, required=True)
     opcoes = ui.TextInput(label="Opções (separadas por vírgula)", placeholder="Ex: 14h, 16h, 20h", style=discord.TextStyle.paragraph, required=True)
     duracao = ui.TextInput(label="Duração (horas)", placeholder="Ex: 24", style=discord.TextStyle.short, required=True)
@@ -142,7 +136,7 @@ class DonPollModal(ui.Modal, title="Criar Votação Oficial da Cúpula"):
                     for opt in raw_opcoes:
                         poll.add_answer(text=opt)
                     msg = await canal.send(
-                        content=f"🗳️ **VOTAÇÃO DA CÚPULA** (Aberta por {interaction.user.mention})",
+                        content=f"🗳️ **VOTAÇÃO OFICIAL** (Aberta por {interaction.user.mention})",
                         poll=poll
                     )
                     resultado[nome_familia] = "✅ Sucesso"
@@ -159,7 +153,7 @@ class DonPollModal(ui.Modal, title="Criar Votação Oficial da Cúpula"):
                         descricao = "\n".join([f"{emojis[i]} {op}" for i, op in enumerate(raw_opcoes)])
                         embed = discord.Embed(
                             title=f"🗳️ {pergunta_texto}",
-                            description=f"**VOTAÇÃO DA CÚPULA**\n\n{descricao}\n*Duração: {horas}h*",
+                            description=f"**VOTAÇÃO OFICIAL**\n\n{descricao}\n*Duração: {horas}h*",
                             color=discord.Color.gold()
                         )
                         msg = await canal.send(embed=embed)
@@ -180,21 +174,24 @@ class DonPollModal(ui.Modal, title="Criar Votação Oficial da Cúpula"):
                     for opt in raw_opcoes:
                         poll_origem.add_answer(text=opt)
                     central_msg = await canal_origem.send(
-                        content=f"🗳️ **VOTAÇÃO OFICIAL DA CÚPULA** (Criada por {interaction.user.mention})",
+                        content=f"🗳️ **VOTAÇÃO OFICIAL** (Criada por {interaction.user.mention})",
                         poll=poll_origem
                     )
                     asyncio.create_task(self._delete_later(central_msg, horas))
                 except:
                     pass
+
                 if grupo["member_polls"]:
                     try:
                         embed_msg = await canal_origem.send(
-                            embed=build_resultado_embed(grupo, guild),
-                            view=DeleteResultView(group_id)
+                            embed=build_resultado_embed(grupo, guild)
                         )
                         grupo["embed_message_id"] = embed_msg.id
-                        asyncio.create_task(self._delete_later_group_only(horas, group_id))
-                        await canal_origem.send("━━━━━━━━━━━━━━━━━━")
+                        # Apaga o resultado agregado e limpa os dados do grupo após o tempo
+                        asyncio.create_task(self._delete_later(embed_msg, horas, group_id))
+                        
+                        sep_msg = await canal_origem.send("━━━━━━━━━━━━━━━━━━")
+                        asyncio.create_task(self._delete_later(sep_msg, horas))
                     except Exception as e:
                         print(f"[VOTACAO] Erro ao enviar embed agregado: {e}")
 
@@ -209,9 +206,8 @@ class DonPollModal(ui.Modal, title="Criar Votação Oficial da Cúpula"):
                     resposta += f"• **{fam}**: {motivo}\n"
             if not sucessos and not falhas:
                 resposta = "⚠️ Nenhuma família processada."
-            resposta += f"\n⏳ As polls das famílias e a poll central serão apagadas após **{horas}** horas."
-            if grupo["member_polls"]:
-                resposta += "\n📊 O resultado agregado ficará visível com botão de eliminar."
+            resposta += f"\n⏳ As polls das famílias e o resultado agregado serão apagados após **{horas}** horas."
+            
             await interaction.followup.send(resposta, ephemeral=True)
         except Exception as erro:
             try:
@@ -219,16 +215,12 @@ class DonPollModal(ui.Modal, title="Criar Votação Oficial da Cúpula"):
             except:
                 pass
 
-    async def _delete_later_group_only(self, hours: float, group_id: str):
-        await asyncio.sleep(hours * 3600)
-        limpar_grupo(group_id)
-
 
 class Votacoes(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="votacao", description="Abre o formulário para o Don criar uma votação global.")
+    @app_commands.command(name="votacao", description="Abre o formulário para criar uma votação oficial.")
     @commands.has_permissions(administrator=True)
     async def votacao_slash(self, interaction: discord.Interaction):
         await interaction.response.send_modal(DonPollModal())
