@@ -35,6 +35,15 @@ async def start_dummy_server():
     await site.start()
     print(f"Servidor Web ativo na porta {port} (Render Keep-Alive)")
 
+# --- BOTÃO PARA APAGAR MENSAGENS EFÉMERAS ---
+class DismissView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=180)
+
+    @discord.ui.button(label="Fechar / Dismiss", style=discord.ButtonStyle.danger, emoji="❌")
+    async def dismiss_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.delete_original_response()
+        
 
 # --- SISTEMA DE TRADUÇÃO DAS MENSAGENS DO CHAT ---
 class TranslateView(discord.ui.View):
@@ -60,7 +69,10 @@ class TranslateView(discord.ui.View):
                 GoogleTranslator(source='auto', target=user_locale).translate,
                 texto_para_traduzir
             )
-            await interaction.response.send_message(f"🔠 **Tradução ({user_locale.upper()}):**\n{translated}", ephemeral=True)
+            await interaction.response.send_message(f"🔠 **Tradução ({user_locale.upper()}):**\n{translated}", 
+            view=DismissView(), 
+            ephemeral=True
+        )
         except Exception:
             await interaction.response.send_message("Erro ao traduzir mensagem.", ephemeral=True)
 
