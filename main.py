@@ -100,7 +100,7 @@ async def enviar_log_mafia(guild: discord.Guild, titulo: str, descricao: str, co
         print(f"Erro ao enviar log da máfia: {e}")
 
 
-# --- PAINEL DOS RANKS (#setup_ranks) ---
+# --- PAINEL DOS RANKS (#setup_ranks) EM INGLÊS COM TRADUÇÃO AUTOMÁTICA ---
 class RanksView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -110,25 +110,25 @@ class RanksView(discord.ui.View):
         user_locale = str(interaction.locale).split("-")[0]
         ranks_texto = (
             "🏛️ **ORGANIZATION & HIERARCHY — COSA NOSTRA**\n\n"
-            "\"Na nossa família não há espaço para soltos. Cada homem tem o seu lugar, o seu dever e o seu peso na balança do poder.\"\n\n"
-            "🎩 **1. THE DON (O Chefe)**\n"
-            "O topo da pirâmide. O Don comanda os destinos de todas as Famílias, arbita disputas territoriais e mantém a paz ou declara a guerra.\n\n"
-            "🍷 **2. CAPOREGIME / CAPO (O Líder de Regime)**\n"
-            "O comandante de cada Família (Corleone, Gambino, Genovese, Lucchese, Bonanno).\n"
-            "• Apenas 1 Capo por Família.\n"
-            "• Lidera o seu próprio QG privado e comanda até 20 Soldados.\n"
-            "• Responsável pela disciplina e estratégia do território.\n\n"
-            "🗡️ **3. SOLDIER (O Homem de Honra)**\n"
-            "O braço armado e leal da Família.\n"
-            "• Limite estrito de 20 Soldados por Família.\n"
-            "• Só pode alistar-se em Famílias que já tenham um Capo ativo.\n"
-            "• Responde exclusivamente à cadeia de comando do seu Capo.\n\n"
-            "🕶️ **4. STAFF / AUDITORES**\n"
-            "Os guardiões do sistema e da neutralidade. Garantem que as regras de Omertà são cumpridas e auditam as operações.\n\n"
-            "📜 **O CÓDIGO DE CONDUTA (OMERTÀ)**\n"
-            "• Lealdade Absoluta: A palavra dada é um contrato de sangue.\n"
-            "• Silêncio: Negócios da Família nunca saem para fora das paredes do QG.\n"
-            "• Respeito Hierárquico: O subalterno cumpre, o líder decide."
+            "\"In our family, there is no room for freelancers. Every man has his place, his duty, and his weight on the scales of power.\"\n\n"
+            "🎩 **1. THE DON (The Boss)**\n"
+            "The top of the pyramid. The Don commands the destiny of all Families, arbitrates territorial disputes, and maintains peace or declares war.\n\n"
+            "🍷 **2. CAPOREGIME / CAPO (The Regime Leader)**\n"
+            "The commander of each Family (Corleone, Gambino, Genovese, Lucchese, Bonanno).\n"
+            "• Only 1 Capo per Family.\n"
+            "• Leads their own private HQ and commands up to 20 Soldiers.\n"
+            "• Responsible for discipline and territory strategy.\n\n"
+            "🗡️ **3. SOLDIER (The Man of Honor)**\n"
+            "The armed and loyal arm of the Family.\n"
+            "• Strict limit of 20 Soldiers per Family.\n"
+            "• Can only enlist in Families that already have an active Capo.\n"
+            "• Responds exclusively to their Capo's chain of command.\n\n"
+            "🕶️ **4. STAFF / AUDITORS**\n"
+            "The guardians of the system and neutrality. They ensure Omertà rules are followed and audit operations.\n\n"
+            "📜 **THE CODE OF CONDUCT (OMERTÀ)**\n"
+            "• Absolute Loyalty: A given word is a blood contract.\n"
+            "• Silence: Family business never leaves the walls of the HQ.\n"
+            "• Hierarchical Respect: The subordinate obeys, the leader decides."
         )
         try:
             translated = await asyncio.to_thread(
@@ -186,10 +186,8 @@ class CapoRegistryView(discord.ui.View):
             return
 
         try:
-            # 1. Atribui o cargo ao Capo
             await member.add_roles(cargo_familia)
 
-            # 2. Gestão Inteligente da Categoria e Canais
             nome_cat = f"🍷 {nome_familia.upper()}"
             categoria = discord.utils.get(guild.categories, name=nome_cat)
 
@@ -201,7 +199,6 @@ class CapoRegistryView(discord.ui.View):
             if not categoria:
                 categoria = await guild.create_category(nome_cat, overwrites=overwrites_base)
 
-            # A) Canal de Anúncios da Família (📜)
             canal_anuncios = discord.utils.get(categoria.text_channels, name="📜-capo-announcements")
             if not canal_anuncios:
                 overwrites_announcements = {
@@ -216,12 +213,11 @@ class CapoRegistryView(discord.ui.View):
                     topic=f"Official announcements for {nome_familia}."
                 )
 
-            # B) Canal de Avisos Globais da Cúpula (🚨-warnings) - Apenas visível ao Capo específico
             canal_warnings = discord.utils.get(categoria.text_channels, name="🚨-warnings")
             overwrites_warnings = {
                 guild.default_role: discord.PermissionOverwrite(read_messages=False),
-                cargo_familia: discord.PermissionOverwrite(read_messages=False), # Soldados não vêem
-                member: discord.PermissionOverwrite(read_messages=True, send_messages=False, read_message_history=True) # Apenas este Capo
+                cargo_familia: discord.PermissionOverwrite(read_messages=False),
+                member: discord.PermissionOverwrite(read_messages=True, send_messages=False, read_message_history=True)
             }
             if not canal_warnings:
                 await guild.create_text_channel(
@@ -233,7 +229,6 @@ class CapoRegistryView(discord.ui.View):
             else:
                 await canal_warnings.set_permissions(member, read_messages=True, send_messages=False, read_message_history=True)
 
-            # C) Chat Geral (💬)
             canal_chat = discord.utils.get(categoria.text_channels, name="💬-general-chat")
             if not canal_chat:
                 await guild.create_text_channel(
@@ -242,7 +237,6 @@ class CapoRegistryView(discord.ui.View):
                     topic=f"Secret HQ text chat for {nome_familia}."
                 )
 
-            # D) Canal de Voz (📢)
             canal_voz = discord.utils.get(categoria.voice_channels, name="📢-meeting-room")
             if not canal_voz:
                 await guild.create_voice_channel(
@@ -475,14 +469,14 @@ async def status_familias(ctx):
 @bot.command(name="setup_ranks")
 @commands.has_permissions(administrator=True)
 async def setup_ranks(ctx):
-    """Cria um painel elegante e imersivo explicando a hierarquia e os ranks da Máfia."""
+    """Cria um painel elegante e imersivo explicando a hierarquia e os ranks da Máfia em inglês."""
     await ctx.message.delete()
     
     embed = discord.Embed(
         title="🏛️ ORGANIZATION & HIERARCHY — COSA NOSTRA",
         description=(
-            "*\"Na nossa família não há espaço para soltos. Cada homem tem o seu lugar, "
-            "o seu dever e o seu peso na balança do poder.\"*\n\n"
+            "*\"In our family, there is no room for freelancers. Every man has his place, "
+            "his duty, and his weight on the scales of power.\"*\n\n"
             "---"
         ),
         color=discord.Color.dark_red(),
@@ -490,44 +484,44 @@ async def setup_ranks(ctx):
     )
     
     embed.add_field(
-        name="🎩 1. THE DON (O Chefe)",
-        value="O topo da pirâmide. O Don comanda os destinos de todas as Famílias, arbita disputas territoriais e mantém a paz ou declara a guerra.",
+        name="🎩 1. THE DON (The Boss)",
+        value="The top of the pyramid. The Don commands the destiny of all Families, arbitrates territorial disputes, and maintains peace or declares war.",
         inline=False
     )
     
     embed.add_field(
-        name="🍷 2. CAPOREGIME / CAPO (O Líder de Regime)",
-        value="O comandante de cada Família (`Corleone`, `Gambino`, `Genovese`, `Lucchese`, `Bonanno`). \n"
-              "• Apenas **1 Capo por Família**.\n"
-              "• Lidera o seu próprio QG privado e comanda até 20 Soldados.\n"
-              "• Responsável pela disciplina e estratégia do território.",
+        name="🍷 2. CAPOREGIME / CAPO (The Regime Leader)",
+        value="The commander of each Family (`Corleone`, `Gambino`, `Genovese`, `Lucchese`, `Bonanno`). \n"
+              "• Only **1 Capo per Family**.\n"
+              "• Leads their own private HQ and commands up to 20 Soldiers.\n"
+              "• Responsible for discipline and territory strategy.",
         inline=False
     )
     
     embed.add_field(
-        name="🗡️ 3. SOLDIER (O Homem de Honra)",
-        value="O braço armado e leal da Família.\n"
-              "• Limite estrito de **20 Soldados por Família**.\n"
-              "• Só pode alistar-se em Famílias que já tenham um Capo ativo.\n"
-              "• Responde exclusivamente à cadeia de comando do seu Capo.",
+        name="🗡️ 3. SOLDIER (The Man of Honor)",
+        value="The armed and loyal arm of the Family.\n"
+              "• Strict limit of **20 Soldiers per Family**.\n"
+              "• Can only enlist in Families that already have an active Capo.\n"
+              "• Responds exclusively to their Capo's chain of command.",
         inline=False
     )
     
     embed.add_field(
-        name="🕶️ 4. STAFF / AUDITORES",
-        value="Os guardiões do sistema e da neutralidade. Garantem que as regras de Omertà são cumpridas e auditam as operações através de `#🕶️-mafia-logs`.",
+        name="🕶️ 4. STAFF / AUDITORS",
+        value="The guardians of the system and neutrality. They ensure Omertà rules are followed and audit operations through `#🕶️-mafia-logs`.",
         inline=False
     )
     
     embed.add_field(
-        name="📜 O CÓDIGO DE CONDUTA (OMERTÀ)",
-        value="• **Lealdade Absoluta:** A palavra dada é um contrato de sangue.\n"
-              "• **Silêncio:** Negócios da Família nunca saem para fora das paredes do QG.\n"
-              "• **Respeito Hierárquico:** O subalterno cumpre, o líder decide.",
+        name="📜 THE CODE OF CONDUCT (OMERTÀ)",
+        value="• **Absolute Loyalty:** A given word is a blood contract.\n"
+              "• **Silence:** Family business never leaves the walls of the HQ.\n"
+              "• **Hierarchical Respect:** The subordinate obeys, the leader decides.",
         inline=False
     )
     
-    embed.set_footer(text="Cosa Nostra System • A Ordem é a Vossa Sobrevivência")
+    embed.set_footer(text="Cosa Nostra System • Order is Your Survival")
     
     await ctx.send(embed=embed, view=RanksView())
 
