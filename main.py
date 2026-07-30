@@ -35,14 +35,19 @@ async def start_dummy_server():
     await site.start()
     print(f"Servidor Web ativo na porta {port} (Render Keep-Alive)")
 
-# --- BOTÃO PARA APAGAR MENSAGENS EFÉMERAS ---
+# --- BOTÃO PARA APAGAR MENSAGENS EFÉMERAS (COM TRATAMENTO DE ERRO) ---
 class DismissView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=180)
 
     @discord.ui.button(label="Fechar / Dismiss", style=discord.ButtonStyle.danger, emoji="❌")
     async def dismiss_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.delete_original_response()
+        try:
+            await interaction.delete_original_response()
+        except discord.NotFound:
+            pass
+        except Exception:
+            pass
         
 # --- SISTEMA DE TRADUÇÃO DAS MENSAGENS DO CHAT ---
 class TranslateView(discord.ui.View):
@@ -93,6 +98,46 @@ async def enviar_log_mafia(guild: discord.Guild, titulo: str, descricao: str, co
             await canal_log.send(embed=embed)
     except Exception as e:
         print(f"Erro ao enviar log da máfia: {e}")
+
+
+# --- PAINEL DOS RANKS (#setup_ranks) ---
+class RanksView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Read Ranks in my language", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="translate_ranks", row=0)
+    async def translate_ranks(self, interaction: discord.Interaction, button: discord.ui.Button):
+        user_locale = str(interaction.locale).split("-")[0]
+        ranks_texto = (
+            "🏛️ **ORGANIZATION & HIERARCHY — COSA NOSTRA**\n\n"
+            "\"Na nossa família não há espaço para soltos. Cada homem tem o seu lugar, o seu dever e o seu peso na balança do poder.\"\n\n"
+            "🎩 **1. THE DON (O Chefe)**\n"
+            "O topo da pirâmide. O Don comanda os destinos de todas as Famílias, arbita disputas territoriais e mantém a paz ou declara a guerra.\n\n"
+            "🍷 **2. CAPOREGIME / CAPO (O Líder de Regime)**\n"
+            "O comandante de cada Família (Corleone, Gambino, Genovese, Lucchese, Bonanno).\n"
+            "• Apenas 1 Capo por Família.\n"
+            "• Lidera o seu próprio QG privado e comanda até 20 Soldados.\n"
+            "• Responsável pela disciplina e estratégia do território.\n\n"
+            "🗡️ **3. SOLDIER (O Homem de Honra)**\n"
+            "O braço armado e leal da Família.\n"
+            "• Limite estrito de 20 Soldados por Família.\n"
+            "• Só pode alistar-se em Famílias que já tenham um Capo ativo.\n"
+            "• Responde exclusivamente à cadeia de comando do seu Capo.\n\n"
+            "🕶️ **4. STAFF / AUDITORES**\n"
+            "Os guardiões do sistema e da neutralidade. Garantem que as regras de Omertà são cumpridas e auditam as operações.\n\n"
+            "📜 **O CÓDIGO DE CONDUTA (OMERTÀ)**\n"
+            "• Lealdade Absoluta: A palavra dada é um contrato de sangue.\n"
+            "• Silêncio: Negócios da Família nunca saem para fora das paredes do QG.\n"
+            "• Respeito Hierárquico: O subalterno cumpre, o líder decide."
+        )
+        try:
+            translated = await asyncio.to_thread(
+                GoogleTranslator(source='auto', target=user_locale).translate,
+                ranks_texto
+            )
+            await interaction.response.send_message(translated, ephemeral=True)
+        except Exception:
+            await interaction.response.send_message(ranks_texto, ephemeral=True)
 
 
 # --- PAINEL DOS CAPOS (#capo-registry) ---
@@ -484,7 +529,7 @@ async def setup_ranks(ctx):
     
     embed.set_footer(text="Cosa Nostra System • A Ordem é a Vossa Sobrevivência")
     
-    await ctx.send(embed=embed)
+    await ctx.send(embed=embed, view=RanksView())
 
 
 @bot.command(name="setup_capo")
@@ -527,6 +572,7 @@ async def setup_soldier(ctx):
 @bot.event
 async def on_ready():
     bot.add_view(TranslateView())
+    bot.add_view(RanksView())
     bot.add_view(CapoRegistryView())
     bot.add_view(SoldierEnlistView())
     await start_dummy_server()
@@ -549,7 +595,7 @@ async def on_message(message):
                 if canal_warnings:
                     try:
                         embed = discord.Embed(
-                            title="🚨 DON Message",
+                            title="🚨 COMUNICADO OFICIAL DA CÚPULA",
                             description=message.content,
                             color=discord.Color.dark_red(),
                             timestamp=discord.utils.utcnow()
