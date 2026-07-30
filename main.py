@@ -35,59 +35,34 @@ async def start_dummy_server():
     await site.start()
     print(f"Servidor Web ativo na porta {port} (Render Keep-Alive)")
 
-# --- BOTÃO PARA APAGAR MENSAGENS EFÉMERAS (COM TRATAMENTO DE ERRO) ---
-class DismissView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=180)
 
-    @discord.ui.button(label="Fechar / Dismiss", style=discord.ButtonStyle.danger, emoji="❌")
-    async def dismiss_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        try:
-            await interaction.delete_original_response()
-        except discord.NotFound:
-            pass
-        except Exception:
-            pass
-        
-# --- SISTEMA DE TRADUÇÃO DAS MENSAGENS DO CHAT ---
-class TranslateView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
+# --- TRADUÇÃO VIA MENU DE CONTEXTO (CLIQUE DIREITO NA MENSAGEM) ---
+@bot.tree.context_menu(name="Traduzir Mensagem")
+async def traduzir_context(interaction: discord.Interaction, message: discord.Message):
+    # 🛑 EVITA TIMEOUT NA TRADUÇÃO
+    await interaction.response.defer(ephemeral=True)
+    
+    if not message.content:
+        await interaction.followup.send("Esta mensagem não tem texto para traduzir.", ephemeral=True)
+        return
 
-    @discord.ui.button(label="Traduzir", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="translate_button")
-    async def translate_button_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # 🛑 EVITA TIMEOUT NA TRADUÇÃO
-        await interaction.response.defer(ephemeral=True)
+    user_locale = str(interaction.locale).split("-")[0]
 
-        message_text = interaction.message.content
-        if not message_text:
-            await interaction.followup.send("Não há texto para traduzir.", ephemeral=True)
-            return
-
-        if ":" in message_text:
-            texto_para_traduzir = message_text.split(":", 1)[1].strip()
-        else:
-            texto_para_traduzir = message_text
-
-        user_locale = str(interaction.locale).split("-")[0]
-
-        try:
-            translated = await asyncio.to_thread(
-                GoogleTranslator(source='auto', target=user_locale).translate,
-                texto_para_traduzir
-            )
-            await interaction.followup.send(
-                f"🔠 **Tradução ({user_locale.upper()}):**\n{translated}", 
-                view=DismissView(), 
-                ephemeral=True
-            )
-        except Exception:
-            await interaction.followup.send("Erro ao traduzir mensagem.", ephemeral=True)
+    try:
+        translated = await asyncio.to_thread(
+            GoogleTranslator(source='auto', target=user_locale).translate,
+            message.content
+        )
+        await interaction.followup.send(
+            f"🔠 **Tradução ({user_locale.upper()}):**\n{translated}", 
+            ephemeral=True
+        )
+    except Exception:
+        await interaction.followup.send("Erro ao traduzir mensagem.", ephemeral=True)
 
 
-# --- SISTEMA DE LOGS E AUDITORIA DA MÁFIA (PROTEGIDO) ---
+# --- SISTEMA DE LOGS E AUDITORIA DA MÁFIA ---
 async def enviar_log_mafia(guild: discord.Guild, titulo: str, descricao: str, cor: discord.Color):
-    """Envia um registo de atividade para o canal privado de logs sem quebrar o bot caso falhe."""
     try:
         canal_log = discord.utils.get(guild.text_channels, name="🕶️-mafia-logs")
         if canal_log:
@@ -103,14 +78,13 @@ async def enviar_log_mafia(guild: discord.Guild, titulo: str, descricao: str, co
         print(f"Erro ao enviar log da máfia: {e}")
 
 
-# --- PAINEL DOS RANKS (#setup_ranks) EM INGLÊS COM TRADUÇÃO AUTOMÁTICA ---
+# --- PAINEL DOS RANKS (#setup_ranks) ---
 class RanksView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
     @discord.ui.button(label="Read Ranks in my language", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="translate_ranks", row=0)
     async def translate_ranks(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # 🛑 EVITA TIMEOUT NA TRADUÇÃO DOS RANKS
         await interaction.response.defer(ephemeral=True)
 
         user_locale = str(interaction.locale).split("-")[0]
@@ -153,7 +127,6 @@ class CapoRegistryView(discord.ui.View):
 
     @discord.ui.button(label="Read Omertà in my language", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="translate_omerta_capo", row=0)
     async def translate_omerta(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # 🛑 EVITA TIMEOUT NA TRADUÇÃO DO OMERTA
         await interaction.response.defer(ephemeral=True)
 
         user_locale = str(interaction.locale).split("-")[0]
@@ -189,12 +162,19 @@ class CapoRegistryView(discord.ui.View):
             await interaction.response.send_message(f"❌ O cargo **{nome_familia}** não existe no servidor. Cria-o nas configurações do Discord.", ephemeral=True)
             return
 
+        # 🧹 LIMPEZA INTELIGENTE DE CAPOS INATIVOS
+        for m in list(cargo_familia.members):
+            if cargo_capo not in m.roles:
+                try:
+                    await m.remove_roles(cargo_familia)
+                except Exception:
+                    pass
+
         capos_na_familia = [m for m in cargo_familia.members if cargo_capo in m.roles]
         if len(capos_na_familia) > 0:
-            await interaction.response.send_message(f"⚠️ A **{nome_familia}** já tem um Capo a liderá-la ({capos_na_familia[0].display_name})!", ephemeral=True)
+            await interaction.response.send_message(f"⚠️ A **{nome_familia}** já tem um Capo ativo a liderá-la ({capos_na_familia[0].display_name})!", ephemeral=True)
             return
 
-        # 🛑 EVITA O TIMEOUT DE 3 SEGUNDOS AO CRIAR CATEGORIAS E CANAIS
         await interaction.response.defer(ephemeral=True)
 
         try:
@@ -211,6 +191,7 @@ class CapoRegistryView(discord.ui.View):
             if not categoria:
                 categoria = await guild.create_category(nome_cat, overwrites=overwrites_base)
 
+            # Canal Anúncios
             canal_anuncios = discord.utils.get(categoria.text_channels, name="📜-capo-announcements")
             if not canal_anuncios:
                 overwrites_announcements = {
@@ -225,6 +206,7 @@ class CapoRegistryView(discord.ui.View):
                     topic=f"Official announcements for {nome_familia}."
                 )
 
+            # Canal Warnings
             canal_warnings = discord.utils.get(categoria.text_channels, name="🚨-warnings")
             overwrites_warnings = {
                 guild.default_role: discord.PermissionOverwrite(read_messages=False),
@@ -241,6 +223,21 @@ class CapoRegistryView(discord.ui.View):
             else:
                 await canal_warnings.set_permissions(member, read_messages=True, send_messages=False, read_message_history=True)
 
+            # Canal Votações da Família
+            canal_votacoes = discord.utils.get(categoria.text_channels, name="🗳️-votações")
+            if not canal_votacoes:
+                overwrites_votacoes = {
+                    guild.default_role: discord.PermissionOverwrite(read_messages=False),
+                    cargo_familia: discord.PermissionOverwrite(read_messages=True, send_messages=True, read_message_history=True)
+                }
+                await guild.create_text_channel(
+                    "🗳️-votações", 
+                    category=categoria, 
+                    overwrites=overwrites_votacoes, 
+                    topic=f"Canal de votações oficiais para a {nome_familia}."
+                )
+
+            # Chat Geral
             canal_chat = discord.utils.get(categoria.text_channels, name="💬-general-chat")
             if not canal_chat:
                 await guild.create_text_channel(
@@ -249,6 +246,7 @@ class CapoRegistryView(discord.ui.View):
                     topic=f"Secret HQ text chat for {nome_familia}."
                 )
 
+            # Sala de Voz
             canal_voz = discord.utils.get(categoria.voice_channels, name="📢-meeting-room")
             if not canal_voz:
                 await guild.create_voice_channel(
@@ -258,7 +256,7 @@ class CapoRegistryView(discord.ui.View):
 
             await interaction.followup.send(
                 f"🍷 **Honra e Lealdade!** Assumiste o comando da **{nome_familia}**!\n"
-                f"📂 QG configurado com sucesso (`📜-capo-announcements`, `🚨-warnings`, `💬-general-chat`, `📢-meeting-room`)!", 
+                f"📂 QG configurado com sucesso (`📜-capo-announcements`, `🚨-warnings`, `🗳️-votações`, `💬-general-chat`, `📢-meeting-room`)!", 
                 ephemeral=True
             )
 
@@ -300,7 +298,6 @@ class SoldierEnlistView(discord.ui.View):
 
     @discord.ui.button(label="Read Omertà in my language", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="translate_omerta_soldier", row=0)
     async def translate_omerta(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # 🛑 EVITA TIMEOUT NA TRADUÇÃO DO SOLDADO
         await interaction.response.defer(ephemeral=True)
 
         user_locale = str(interaction.locale).split("-")[0]
@@ -344,7 +341,6 @@ class SoldierEnlistView(discord.ui.View):
             await interaction.response.send_message(f"⚠️ A **{nome_familia}** já está cheia ({LIMITE_SOLDIERS}/{LIMITE_SOLDIERS} Soldados)!", ephemeral=True)
             return
 
-        # 🛑 EVITA TIMEOUT AO MUDAR CARGOS
         await interaction.response.defer(ephemeral=True)
 
         try:
@@ -445,6 +441,34 @@ async def setup_capos_message(ctx):
         topic="Tudo o que for colocado aqui será propagado automaticamente para o canal 🚨-warnings de todas as Famílias."
     )
     await ctx.send(f"✅ Canal central criado com sucesso: {canal.mention}")
+
+
+@bot.command(name="setup_vota_message")
+@commands.has_permissions(administrator=True)
+async def setup_vota_message(ctx):
+    guild = ctx.guild
+    nome_canal = "🎯-don-votes"
+    
+    canal_existente = discord.utils.get(guild.text_channels, name=nome_canal)
+    if canal_existente:
+        await ctx.send(f"⚠️ O canal central de votações já existe: {canal_existente.mention}")
+        return
+
+    overwrites = {
+        guild.default_role: discord.PermissionOverwrite(read_messages=False),
+        guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+    }
+
+    for role in guild.roles:
+        if role.permissions.administrator or role.name == "Capo":
+            overwrites[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+
+    canal = await guild.create_text_channel(
+        name=nome_canal,
+        overwrites=overwrites,
+        topic="Tudo o que for enviado aqui (texto, embeds ou polls) será propagado automaticamente para o canal 🗳️-votações de todas as Famílias."
+    )
+    await ctx.send(f"✅ Canal central de votações criado com sucesso: {canal.mention}")
 
 
 @bot.command(name="status_familias")
@@ -577,21 +601,29 @@ async def setup_soldier(ctx):
 
 @bot.event
 async def on_ready():
-    bot.add_view(TranslateView())
     bot.add_view(RanksView())
     bot.add_view(CapoRegistryView())
     bot.add_view(SoldierEnlistView())
+    
+    # Sincroniza os menus de contexto (tradução por clique direito)
+    try:
+        await bot.tree.sync()
+        print("Comandos de barra/contexto sincronizados com sucesso.")
+    except Exception as e:
+        print(f"Erro ao sincronizar árvore de comandos: {e}")
+
     await start_dummy_server()
     print(f"Bot Máfia & Tradutor ligado como {bot.user}")
 
 
+# --- GESTÃO DE MENSAGENS CENTRAIS (AVISOS E VOTAÇÕES) ---
 @bot.event
 async def on_message(message):
     if message.author.bot:
         return
         
+    # Propagação de Avisos da Cúpula
     if message.channel.name == "🎯-capos-message":
-        propagated_count = 0
         for familia_key, nome_familia in FAMILIAS.items():
             nome_cat = f"🍷 {nome_familia.upper()}"
             categoria = discord.utils.get(message.guild.categories, name=nome_cat)
@@ -613,7 +645,6 @@ async def on_message(message):
                             embed.set_image(url=message.attachments[0].url)
                         
                         await canal_warnings.send(embed=embed)
-                        propagated_count += 1
                     except Exception as e:
                         print(f"Erro ao propagar aviso para {nome_familia}: {e}")
         
@@ -623,14 +654,39 @@ async def on_message(message):
             pass
         return
 
-    await bot.process_commands(message)
-
-    if message.content and not message.content.startswith(bot.command_prefix):
-        await message.channel.send(content=f"**{message.author.display_name}**: {message.content}", view=TranslateView())
+    # Propagação de Votações globais do Don
+    if message.channel.name == "🎯-don-votes":
+        for familia_key, nome_familia in FAMILIAS.items():
+            nome_cat = f"🍷 {nome_familia.upper()}"
+            categoria = discord.utils.get(message.guild.categories, name=nome_cat)
+            if categoria:
+                canal_votacoes = discord.utils.get(categoria.text_channels, name="🗳️-votações")
+                if canal_votacoes:
+                    try:
+                        embed = discord.Embed(
+                            title="🗳️ NOVA VOTAÇÃO OFICIAL DA CÚPULA",
+                            description=message.content or "*(Ver votação em anexo/poll)*",
+                            color=discord.Color.dark_purple(),
+                            timestamp=discord.utils.utcnow()
+                        )
+                        embed.set_author(
+                            name=message.author.display_name, 
+                            icon_url=message.author.display_avatar.url if message.author.display_avatar else None
+                        )
+                        if message.attachments:
+                            embed.set_image(url=message.attachments[0].url)
+                        
+                        await canal_votacoes.send(embed=embed)
+                    except Exception as e:
+                        print(f"Erro ao propagar votação para {nome_familia}: {e}")
+        
         try:
-            await message.delete()
+            await message.add_reaction("✅")
         except discord.Forbidden:
             pass
+        return
+
+    await bot.process_commands(message)
 
 token = os.getenv("DISCORD_TOKEN")
 if token:
