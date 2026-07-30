@@ -6,11 +6,12 @@ from deep_translator import GoogleTranslator
 from aiohttp import web
 from datetime import timedelta
 from collections import defaultdict
+from typing import Optional
 
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
-intents.polls = True  # necessário para on_raw_poll_vote_add / on_raw_poll_vote_remove
+intents.polls = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
@@ -23,21 +24,36 @@ FAMILIAS = {
 }
 LIMITE_SOLDIERS = 20
 
-# --- REGISTO DE VOTAÇÕES ATIVAS (AGREGAÇÃO ENTRE FAMÍLIAS) ---
-# poll_groups[group_id] = {
-#     "pergunta": str,
-#     "opcoes": [str, ...],
-#     "votos": {indice_opcao: contagem},
-#     "canal_central_id": int,
-#     "embed_message_id": int | None,
-#     "member_polls": {message_id: {"familia": str, "answer_map": {answer_id: indice_opcao}}}
-# }
+# Cargos considerados "elegíveis" para as votações
+CARGOS_ELEGIVEIS = [
+    "Don",
+    "Capo",
+    "Soldier",
+    "Consigliere",
+    "Capodecina",
+    "Assistente"
+]
+
+# Agregação de polls
 poll_groups = {}
-message_to_group = {}  # message_id (de qualquer poll de família) -> group_id
+message_to_group = {}
 
 
-def build_resultado_embed(grupo: dict) -> discord.Embed:
+def contar_elegiveis(guild: discord.Guild) -> int:
+    """Conta membros do servidor que têm qualquer um dos cargos elegíveis."""
+    elegiveis = set()
+    for role_name in CARGOS_ELEGIVEIS:
+        role = discord.utils.get(guild.roles, name=role_name)
+        if role:
+            elegiveis.update(role.members)
+    return len(elegiveis)
+
+
+def build_resultado_embed(grupo: dict, guild: discord.Guild) -> discord.Embed:
     total = sum(grupo["votos"].values())
+    elegiveis = contar_elegiveis(guild)
+    faltam = max(elegiveis - total, 0)
+
     embed = discord.Embed(
         title=f"📊 Resultado Agregado — {grupo['pergunta']}",
         color=discord.Color.dark_gold(),
@@ -49,10 +65,16 @@ def build_resultado_embed(grupo: dict) -> discord.Embed:
         barra_len = int(pct / 5)
         barra = "█" * barra_len + "░" * (20 - barra_len)
         embed.add_field(name=opcao, value=f"`{barra}` **{votos}** votos ({pct:.1f}%)", inline=False)
+
     familias_txt = ", ".join(
         v["familia"] for v in grupo["member_polls"].values()
     ) or "Nenhuma"
-    embed.set_footer(text=f"Total de votos: {total} • Famílias: {familias_txt}")
+    embed.add_field(
+        name="🗳️ Participação",
+        value=f"Votaram: **{total}**\nElegíveis: **{elegiveis}**\nFaltam: **{faltam}**",
+        inline=False
+    )
+    embed.set_footer(text=f"Famílias: {familias_txt}")
     return embed
 
 
@@ -61,11 +83,12 @@ async def atualizar_embed_central(group_id: str):
     if not grupo or not grupo.get("embed_message_id"):
         return
     canal = bot.get_channel(grupo["canal_central_id"])
-    if not canal:
+    guild = canal.guild if canal else None
+    if not guild:
         return
     try:
         msg = await canal.fetch_message(grupo["embed_message_id"])
-        await msg.edit(embed=build_resultado_embed(grupo))
+        await msg.edit(embed=build_resultado_embed(grupo, guild))
     except (discord.NotFound, discord.Forbidden, discord.HTTPException) as e:
         print(f"[VOTACAO] Erro ao atualizar embed central: {e}")
 
@@ -78,7 +101,7 @@ def limpar_grupo(group_id: str):
         message_to_group.pop(message_id, None)
 
 
-# --- SERVIDOR WEB DUMMY PARA O RENDER NÃO DAR TIMEOUT DE PORTA ---
+# --- Servidor dummy para Render ---
 async def handle_ping(request):
     return web.Response(text="Bot Máfia Online!")
 
@@ -93,28 +116,84 @@ async def start_dummy_server():
     print(f"Servidor Web ativo na porta {port} (Render Keep-Alive)")
 
 
-# --- TRADUÇÃO VIA MENU DE CONTEXTO ---
+# --- TRADUÇÃO (contexto + comando de agrupamento) ---
 @bot.tree.context_menu(name="Traduzir Mensagem")
 async def traduzir_context(interaction: discord.Interaction, message: discord.Message):
     await interaction.response.defer(ephemeral=True)
     if not message.content:
         await interaction.followup.send("Esta mensagem não tem texto para traduzir.", ephemeral=True)
         return
-    user_locale = str(interaction.locale).split("-")[0]
-    print(f"[TRADUTOR] A traduzir para locale='{user_locale}' (original interaction.locale='{interaction.locale}')")
+    # Fallback para português se não conseguir detetar o locale
+    user_locale = (str(interaction.locale).split("-")[0] or "pt")[:2]
+    print(f"[TRADUTOR] Traduzindo para locale='{user_locale}'")
     try:
         translated = await asyncio.to_thread(
             GoogleTranslator(source='auto', target=user_locale).translate,
             message.content
         )
         if not translated:
-            print("[TRADUTOR] GoogleTranslator devolveu resultado vazio.")
-            await interaction.followup.send("Não foi possível obter tradução (resultado vazio).", ephemeral=True)
+            await interaction.followup.send("Não foi possível obter tradução.", ephemeral=True)
             return
         await interaction.followup.send(f"🔠 **Tradução ({user_locale.upper()}):**\n{translated}", ephemeral=True)
     except Exception as e:
-        print(f"[TRADUTOR] Erro ao traduzir: {type(e).__name__}: {e}")
-        await interaction.followup.send(f"Erro ao traduzir mensagem: `{type(e).__name__}`", ephemeral=True)
+        print(f"[TRADUTOR] Erro: {type(e).__name__}: {e}")
+        await interaction.followup.send("Erro ao traduzir. Tenta novamente.", ephemeral=True)
+
+
+@bot.tree.command(name="traduzir_utilizador", description="Traduz as últimas mensagens consecutivas de um utilizador")
+@discord.app_commands.describe(membro="Utilizador alvo", limite="Nº máximo de mensagens a analisar (padrão: 10)")
+async def traduzir_utilizador(interaction: discord.Interaction, membro: discord.Member, limite: int = 10):
+    await interaction.response.defer(ephemeral=True)
+    if limite < 1 or limite > 50:
+        await interaction.followup.send("O limite deve estar entre 1 e 50.", ephemeral=True)
+        return
+
+    # Busca as últimas mensagens no canal
+    messages = [msg async for msg in interaction.channel.history(limit=limite)]
+    if not messages:
+        await interaction.followup.send("Não encontrei mensagens recentes.", ephemeral=True)
+        return
+
+    # Filtra as do utilizador e preserva a ordem (mais antiga primeiro)
+    user_msgs = [m for m in reversed(messages) if m.author == membro and m.content]
+    if not user_msgs:
+        await interaction.followup.send(f"{membro.mention} não tem mensagens de texto recentes.", ephemeral=True)
+        return
+
+    # Agrupa mensagens consecutivas (no histórico) do mesmo autor
+    blocos = []
+    bloco_atual = []
+    for msg in user_msgs:
+        if bloco_atual and msg.author != bloco_atual[-1].author:
+            blocos.append(bloco_atual)
+            bloco_atual = [msg]
+        else:
+            bloco_atual.append(msg)
+    if bloco_atual:
+        blocos.append(bloco_atual)
+
+    user_locale = (str(interaction.locale).split("-")[0] or "pt")[:2]
+    respostas = []
+    for i, bloco in enumerate(blocos, 1):
+        texto = "\n".join(m.content for m in bloco)
+        try:
+            translated = await asyncio.to_thread(
+                GoogleTranslator(source='auto', target=user_locale).translate,
+                texto
+            )
+            respostas.append(f"**Bloco {i}** ({len(bloco)} msg):\n{translated}")
+        except Exception as e:
+            print(f"[TRADUTOR] Erro no bloco {i}: {e}")
+            respostas.append(f"**Bloco {i}**: (erro na tradução)")
+
+    final = f"🔠 **Tradução ({user_locale.upper()}) para {membro.display_name}:**\n\n" + "\n\n".join(respostas)
+    # Divide se ultrapassar o limite de caracteres do Discord
+    if len(final) > 2000:
+        partes = [final[i:i+2000] for i in range(0, len(final), 2000)]
+        for parte in partes:
+            await interaction.followup.send(parte, ephemeral=True)
+    else:
+        await interaction.followup.send(final, ephemeral=True)
 
 
 # --- LOGS DA MÁFIA ---
@@ -137,7 +216,7 @@ class RanksView(discord.ui.View):
     @discord.ui.button(label="Read Ranks in my language", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="translate_ranks", row=0)
     async def translate_ranks(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        user_locale = str(interaction.locale).split("-")[0]
+        user_locale = str(interaction.locale).split("-")[0] or "pt"
         ranks_texto = (
             "🏛️ **ORGANIZATION & HIERARCHY — COSA NOSTRA**\n\n"
             "\"In our family, there is no room for freelancers. Every man has his place, his duty, and his weight on the scales of power.\"\n\n"
@@ -176,7 +255,7 @@ class CapoRegistryView(discord.ui.View):
     @discord.ui.button(label="Read Omertà in my language", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="translate_omerta_capo", row=0)
     async def translate_omerta(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        user_locale = str(interaction.locale).split("-")[0]
+        user_locale = str(interaction.locale).split("-")[0] or "pt"
         pacto_texto = (
             "📜 **O PACTO DE OMERTÀ DOS CAPOS**\n\n"
             "1. **Lealdade Absoluta:** As tuas ordens vêm do Don e dos Capodecinas. A tua palavra é a lei para os teus 20 Soldados.\n"
@@ -203,6 +282,7 @@ class CapoRegistryView(discord.ui.View):
         if not cargo_familia:
             await interaction.response.send_message(f"❌ O cargo **{nome_familia}** não existe no servidor. Cria-o nas configurações do Discord.", ephemeral=True)
             return
+        # Limpa soldados sem Capo
         for m in list(cargo_familia.members):
             if cargo_capo not in m.roles:
                 try:
@@ -210,7 +290,7 @@ class CapoRegistryView(discord.ui.View):
                 except Exception:
                     pass
         capos_na_familia = [m for m in cargo_familia.members if cargo_capo in m.roles]
-        if len(capos_na_familia) > 0:
+        if capos_na_familia:
             await interaction.response.send_message(f"⚠️ A **{nome_familia}** já tem um Capo ativo a liderá-la ({capos_na_familia[0].display_name})!", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)
@@ -265,7 +345,7 @@ class CapoRegistryView(discord.ui.View):
             )
             await enviar_log_mafia(guild, "🍷 NOVO CAPO & QG CRIADO", f"{member.mention} assumiu a liderança da **{nome_familia}** e ativou o QG privado da Família!", discord.Color.gold())
         except discord.Forbidden:
-            await interaction.followup.send("❌ O bot não tem permissões para gerenciar cargos/canais. Garante que o bot tem a permissão de Administrador.", ephemeral=True)
+            await interaction.followup.send("❌ O bot não tem permissões para gerenciar cargos/canais.", ephemeral=True)
 
     @discord.ui.button(label="Corleone", style=discord.ButtonStyle.primary, emoji="🍷", custom_id="capo_corleone", row=1)
     async def capo_corleone(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -292,7 +372,7 @@ class SoldierEnlistView(discord.ui.View):
     @discord.ui.button(label="Read Omertà in my language", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="translate_omerta_soldier", row=0)
     async def translate_omerta(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        user_locale = str(interaction.locale).split("-")[0]
+        user_locale = str(interaction.locale).split("-")[0] or "pt"
         pacto_texto = (
             "📜 **O PACTO DE OMERTÀ DOS SOLDADOS**\n\n"
             "1. **Silêncio Absoluto (Omertà):** Nunca fales sobre negócios da Família com autoridades ou rivais. A língua solta encomenda o teu caixão.\n"
@@ -354,29 +434,13 @@ class SoldierEnlistView(discord.ui.View):
         await self.handle_soldier_join(interaction, "bonanno")
 
 
-# --- SISTEMA DE VOTAÇÕES INTERATIVAS (MODAL + SLASH COMMAND) ---
+# --- SISTEMA DE VOTAÇÕES (MODAL) ---
 class DonPollModal(discord.ui.Modal, title="Criar Votação Oficial da Cúpula"):
-    pergunta = discord.ui.TextInput(
-        label="Pergunta da Votação",
-        placeholder="Ex: A que horas atacamos amanhã?",
-        style=discord.TextStyle.short,
-        required=True
-    )
-    opcoes = discord.ui.TextInput(
-        label="Opções (separadas por vírgula)",
-        placeholder="Ex: 14h, 16h, 20h",
-        style=discord.TextStyle.paragraph,
-        required=True
-    )
-    duracao = discord.ui.TextInput(
-        label="Duração (horas)",
-        placeholder="Ex: 24 (as polls das famílias somem após este tempo)",
-        style=discord.TextStyle.short,
-        required=True
-    )
+    pergunta = discord.ui.TextInput(label="Pergunta da Votação", placeholder="Ex: A que horas atacamos?", style=discord.TextStyle.short, required=True)
+    opcoes = discord.ui.TextInput(label="Opções (separadas por vírgula)", placeholder="Ex: 14h, 16h, 20h", style=discord.TextStyle.paragraph, required=True)
+    duracao = discord.ui.TextInput(label="Duração (horas)", placeholder="Ex: 24", style=discord.TextStyle.short, required=True)
 
-    async def _delete_later(self, message: discord.Message, hours: float, group_id: str | None = None):
-        """Apaga uma mensagem após o número de horas especificado e limpa o registo de agregação."""
+    async def _delete_later(self, message: discord.Message, hours: float, group_id: Optional[str] = None):
         await asyncio.sleep(hours * 3600)
         try:
             await message.delete()
@@ -390,26 +454,24 @@ class DonPollModal(discord.ui.Modal, title="Criar Votação Oficial da Cúpula")
         try:
             pergunta_texto = self.pergunta.value
             raw_opcoes = [o.strip() for o in self.opcoes.value.split(",") if o.strip()]
-
             if len(raw_opcoes) < 2:
                 await interaction.followup.send("❌ Tens de fornecer pelo menos 2 opções.", ephemeral=True)
                 return
             if len(raw_opcoes) > 10:
                 await interaction.followup.send("❌ Máximo de 10 opções.", ephemeral=True)
                 return
-
-            # Validar duração
             try:
                 horas = float(self.duracao.value)
                 if horas <= 0:
                     raise ValueError
             except ValueError:
-                await interaction.followup.send("❌ Duração inválida. Indica um número positivo (ex: 24).", ephemeral=True)
+                await interaction.followup.send("❌ Duração inválida (ex: 24).", ephemeral=True)
                 return
 
             guild = interaction.guild
+            cargo_capo = discord.utils.get(guild.roles, name="Capo")
 
-            # Cria o grupo de agregação desta votação (liga todas as polls de família)
+            # Cria grupo de agregação
             group_id = f"{interaction.id}"
             poll_groups[group_id] = {
                 "pergunta": pergunta_texto,
@@ -420,15 +482,23 @@ class DonPollModal(discord.ui.Modal, title="Criar Votação Oficial da Cúpula")
                 "member_polls": {}
             }
             grupo = poll_groups[group_id]
-
             resultado = {}
 
-            # Propagação para as famílias
             for familia_key, nome_familia in FAMILIAS.items():
+                nome_familia_role = discord.utils.get(guild.roles, name=nome_familia)
+                if not nome_familia_role:
+                    continue  # cargo da família nem existe
+
+                # Verifica se tem Capo ativo
+                tem_capo = any(cargo_capo in m.roles for m in nome_familia_role.members)
+                if not tem_capo:
+                    resultado[nome_familia] = "❌ Sem Capo ativo"
+                    continue
+
                 nome_cat = f"🍷 {nome_familia.upper()}"
                 categoria = discord.utils.get(guild.categories, name=nome_cat)
                 if not categoria:
-                    resultado[nome_familia] = "❌ Categoria não encontrada (sem QG)"
+                    resultado[nome_familia] = "❌ Categoria não encontrada (QG não criado)"
                     continue
 
                 canal = discord.utils.get(categoria.text_channels, name="🗳️-votações")
@@ -441,7 +511,7 @@ class DonPollModal(discord.ui.Modal, title="Criar Votação Oficial da Cúpula")
                     resultado[nome_familia] = "❌ Sem permissão 'Send Messages'"
                     continue
 
-                # Tentar poll nativa com a duração definida
+                # Envia poll nativa ou fallback por reações
                 try:
                     poll = discord.Poll(question=pergunta_texto, duration=timedelta(hours=horas))
                     for opt in raw_opcoes:
@@ -451,37 +521,32 @@ class DonPollModal(discord.ui.Modal, title="Criar Votação Oficial da Cúpula")
                         poll=poll
                     )
                     resultado[nome_familia] = "✅ Sucesso"
-
-                    # Regista esta poll no grupo de agregação, mapeando answer_id -> índice da opção
                     answer_map = {}
                     if msg.poll:
                         for idx, answer in enumerate(msg.poll.answers):
                             answer_map[answer.id] = idx
                     grupo["member_polls"][msg.id] = {"familia": nome_familia, "answer_map": answer_map}
                     message_to_group[msg.id] = group_id
-
-                    # Agendar apagamento após a duração
                     asyncio.create_task(self._delete_later(msg, horas, group_id=None))
                 except Exception:
-                    # Fallback por reações (não entra na agregação, pois não gera eventos de poll)
                     try:
                         emojis = ["1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"]
                         descricao = "\n".join([f"{emojis[i]} {op}" for i, op in enumerate(raw_opcoes)])
                         embed = discord.Embed(
                             title=f"🗳️ {pergunta_texto}",
-                            description=f"**VOTAÇÃO DA CÚPULA** (Aberta por {interaction.user.mention})\n\n{descricao}\n*Duração: {horas}h*",
+                            description=f"**VOTAÇÃO DA CÚPULA**\n\n{descricao}\n*Duração: {horas}h*",
                             color=discord.Color.gold()
                         )
                         msg = await canal.send(embed=embed)
                         for i in range(len(raw_opcoes)):
                             await msg.add_reaction(emojis[i])
-                        resultado[nome_familia] = "✅ Sucesso (por reações — fora da agregação)"
+                        resultado[nome_familia] = "✅ Sucesso (reações)"
                         asyncio.create_task(self._delete_later(msg, horas, group_id=None))
                     except Exception as e:
                         resultado[nome_familia] = f"❌ Falhou: {str(e)[:60]}"
                 await asyncio.sleep(1)
 
-            # Enviar também no canal onde o /votacao foi usado (NÃO apagar) + embed agregado
+            # Canal central (poll permanente + embed de resultado)
             canal_origem = interaction.channel
             if canal_origem:
                 perms_origem = canal_origem.permissions_for(guild.me)
@@ -497,21 +562,17 @@ class DonPollModal(discord.ui.Modal, title="Criar Votação Oficial da Cúpula")
                         )
                     except Exception:
                         pass
-
-                    # Embed com o resultado agregado das famílias, atualizado em tempo real
                     if grupo["member_polls"]:
                         try:
-                            embed_msg = await canal_origem.send(embed=build_resultado_embed(grupo))
+                            embed_msg = await canal_origem.send(embed=build_resultado_embed(grupo, guild))
                             grupo["embed_message_id"] = embed_msg.id
-                            # Agenda a limpeza do grupo de agregação para quando a votação expirar
                             asyncio.create_task(self._delete_later_group_only(horas, group_id))
                         except Exception as e:
                             print(f"[VOTACAO] Erro ao enviar embed agregado: {e}")
 
-            # Resposta privada
+            # Resposta final
             sucessos = [f for f, r in resultado.items() if "Sucesso" in r]
             falhas = {f: r for f, r in resultado.items() if "Sucesso" not in r}
-
             resposta = ""
             if sucessos:
                 resposta += f"✅ Propagada para: **{', '.join(sucessos)}**.\n"
@@ -521,20 +582,18 @@ class DonPollModal(discord.ui.Modal, title="Criar Votação Oficial da Cúpula")
                     resposta += f"• **{fam}**: {motivo}\n"
             if not sucessos and not falhas:
                 resposta = "⚠️ Nenhuma família processada."
-            resposta += f"\n⏳ As polls das famílias serão apagadas automaticamente após **{horas}** horas."
+            resposta += f"\n⏳ As polls das famílias serão apagadas após **{horas}** horas."
             if grupo["member_polls"]:
-                resposta += "\n📊 O resultado agregado será atualizado em tempo real no canal central."
-
+                resposta += "\n📊 Resultado agregado atualizado em tempo real no canal central."
             await interaction.followup.send(resposta, ephemeral=True)
 
         except Exception as erro:
             try:
-                await interaction.followup.send(f"❌ Ocorreu um erro inesperado: {str(erro)[:200]}", ephemeral=True)
+                await interaction.followup.send(f"❌ Erro inesperado: {str(erro)[:200]}", ephemeral=True)
             except:
                 pass
 
     async def _delete_later_group_only(self, hours: float, group_id: str):
-        """Limpa o grupo de agregação (sem apagar o embed central) após a duração da votação."""
         await asyncio.sleep(hours * 3600)
         limpar_grupo(group_id)
 
@@ -545,9 +604,9 @@ async def votacao_slash(interaction: discord.Interaction):
     await interaction.response.send_modal(DonPollModal())
 
 
-# --- EVENTOS DE VOTO EM POLLS (AGREGAÇÃO ENTRE FAMÍLIAS) ---
+# --- Eventos de agregação de votos ---
 @bot.event
-async def on_raw_poll_vote_add(payload: discord.RawPollVoteActionEvent):
+async def on_raw_poll_vote_add(payload):
     group_id = message_to_group.get(payload.message_id)
     if not group_id:
         return
@@ -563,9 +622,8 @@ async def on_raw_poll_vote_add(payload: discord.RawPollVoteActionEvent):
     grupo["votos"][idx] += 1
     await atualizar_embed_central(group_id)
 
-
 @bot.event
-async def on_raw_poll_vote_remove(payload: discord.RawPollVoteActionEvent):
+async def on_raw_poll_vote_remove(payload):
     group_id = message_to_group.get(payload.message_id)
     if not group_id:
         return
@@ -582,7 +640,7 @@ async def on_raw_poll_vote_remove(payload: discord.RawPollVoteActionEvent):
     await atualizar_embed_central(group_id)
 
 
-# --- COMANDO SYNC ---
+# --- Comandos de setup e relatório (mantidos como estavam) ---
 @bot.command(name="sync")
 @commands.has_permissions(administrator=True)
 async def sync_commands(ctx):
@@ -593,8 +651,6 @@ async def sync_commands(ctx):
     except Exception as e:
         await ctx.send(f"❌ Erro ao sincronizar: {e}")
 
-
-# --- COMANDOS DE SETUP E RELATÓRIO ---
 @bot.command(name="setup_logs")
 @commands.has_permissions(administrator=True)
 async def setup_logs(ctx):
@@ -719,6 +775,7 @@ async def setup_soldier(ctx):
         "⚠️ **Junta-te a um Regime abaixo.**"
     )
     await ctx.send(content=texto, view=SoldierEnlistView())
+
 
 @bot.event
 async def on_ready():
