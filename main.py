@@ -113,19 +113,60 @@ class CapoRegistryView(discord.ui.View):
         nome_familia = FAMILIAS[familia_key]
         cargo_familia = discord.utils.get(guild.roles, name=nome_familia)
 
+        if not cargo_familia:
+            await interaction.response.send_message(f"❌ O cargo **{nome_familia}** não existe no servidor. Cria-o nas configurações do Discord.", ephemeral=True)
+            return
+
         capos_na_familia = [m for m in cargo_familia.members if cargo_capo in m.roles]
         if len(capos_na_familia) > 0:
             await interaction.response.send_message(f"⚠️ A **{nome_familia}** já tem um Capo a liderá-la ({capos_na_familia[0].display_name})!", ephemeral=True)
             return
 
-        await member.add_roles(cargo_familia)
-        await interaction.response.send_message(f"🍷 **Honra e Lealdade!** Assumiste o comando da **{nome_familia}**!", ephemeral=True)
-        await enviar_log_mafia(
-        guild, 
-        "🍷 NOVO CAPO NOMEADO", 
-        f"{member.mention} assumiu a liderança da **{nome_familia}**!", 
-        discord.Color.gold()
-        )
+        try:
+            # 1. Atribui o cargo ao Capo
+            await member.add_roles(cargo_familia)
+
+            # 2. Criação Dinâmica da Categoria e Canais
+            nome_cat = f"🍷 {nome_familia.upper()}"
+            categoria = discord.utils.get(guild.categories, name=nome_cat)
+
+            if not categoria:
+                # Permissões Base da Categoria: Privada para a Família
+                overwrites_base = {
+                    guild.default_role: discord.PermissionOverwrite(read_messages=False),
+                    cargo_familia: discord.PermissionOverwrite(read_messages=True, send_messages=True, read_message_history=True, connect=True)
+                }
+                categoria = await guild.create_category(nome_cat, overwrites=overwrites_base)
+
+                # A) Canal de Anúncios (Apenas o Capo e Admins podem escrever; Soldados só leem)
+                overwrites_anuncios = {
+                    guild.default_role: discord.PermissionOverwrite(read_messages=False),
+                    cargo_familia: discord.PermissionOverwrite(read_messages=True, send_messages=False),
+                    cargo_capo: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+                }
+                await guild.create_text_channel("📢-anuncios-capo", category=categoria, overwrites=overwrites_anuncios, topic=f"Anúncios oficiais da liderança da {nome_familia}.")
+
+                # B) Chat Geral de Texto
+                await guild.create_text_channel("💬-chat-geral", category=categoria, topic=f"Sede secreta de conversação da {nome_familia}.")
+
+                # C) Canal de Voz Privado
+                await guild.create_voice_channel("🔊-sala-de-reuniao", category=categoria)
+
+            await interaction.response.send_message(
+                f"🍷 **Honra e Lealdade!** Assumiste o comando da **{nome_familia}**!\n"
+                f"📂 A Categoria privada e os canais (Anúncios, Chat e Voz) foram criados para a tua Família!", 
+                ephemeral=True
+            )
+
+            await enviar_log_mafia(
+                guild, 
+                "🍷 NOVO CAPO & QG CRIADO", 
+                f"{member.mention} assumiu a liderança da **{nome_familia}** e ativou o QG privado da Família!", 
+                discord.Color.gold()
+            )
+
+        except discord.Forbidden:
+            await interaction.response.send_message("❌ O bot não tem permissões para gerenciar cargos/canais. Garante que o bot tem a permissão de Administrador.", ephemeral=True)
 
     @discord.ui.button(label="Corleone", style=discord.ButtonStyle.primary, emoji="🍷", custom_id="capo_corleone", row=1)
     async def capo_corleone(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -196,19 +237,22 @@ class SoldierEnlistView(discord.ui.View):
             await interaction.response.send_message(f"⚠️ A **{nome_familia}** já está cheia ({LIMITE_SOLDIERS}/{LIMITE_SOLDIERS} Soldados)!", ephemeral=True)
             return
 
-        for f_nome in FAMILIAS.values():
-            c_antigo = discord.utils.get(guild.roles, name=f_nome)
-            if c_antigo in member.roles:
-                await member.remove_roles(c_antigo)
+        try:
+            for f_nome in FAMILIAS.values():
+                c_antigo = discord.utils.get(guild.roles, name=f_nome)
+                if c_antigo in member.roles:
+                    await member.remove_roles(c_antigo)
 
-        await member.add_roles(cargo_familia)
-        aawait interaction.response.send_message(f"🗡️ Bem-vindo à **{nome_familia}**! Cumpre o Pacto de Omertà e obedece ao teu Capo.", ephemeral=True)
-        await enviar_log_mafia(
-        guild, 
-        "🗡️ NOVO SOLDADO ALISTADO", 
-        f"{member.mention} juntou-se à **{nome_familia}**!", 
-        discord.Color.blue()
-        )
+            await member.add_roles(cargo_familia)
+            await interaction.response.send_message(f"🗡️ Bem-vindo à **{nome_familia}**! Cumpre o Pacto de Omertà e obedece ao teu Capo.", ephemeral=True)
+            await enviar_log_mafia(
+                guild, 
+                "🗡️ NOVO SOLDADO ALISTADO", 
+                f"{member.mention} juntou-se à **{nome_familia}**!", 
+                discord.Color.blue()
+            )
+        except discord.Forbidden:
+            await interaction.response.send_message("❌ O bot não tem permissão para alterar cargos. Ajusta a hierarquia de cargos no Discord.", ephemeral=True)
 
     @discord.ui.button(label="Corleone", style=discord.ButtonStyle.success, emoji="🗡️", custom_id="soldier_corleone", row=1)
     async def soldier_corleone(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -229,6 +273,7 @@ class SoldierEnlistView(discord.ui.View):
     @discord.ui.button(label="Bonanno", style=discord.ButtonStyle.success, emoji="🗡️", custom_id="soldier_bonanno", row=2)
     async def soldier_bonanno(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.handle_soldier_join(interaction, "bonanno")
+
 
 # --- SISTEMA DE LOGS E AUDITORIA DA MÁFIA ---
 
@@ -262,7 +307,6 @@ async def setup_logs(ctx):
         guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
     }
 
-    # Dá acesso aos administradores
     for role in guild.roles:
         if role.permissions.administrator:
             overwrites[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
@@ -308,52 +352,6 @@ async def status_familias(ctx):
 
 # --- COMANDOS DE SETUP ---
 
-@bot.command(name="setup_canais")
-@commands.has_permissions(administrator=True)
-async def setup_canais(ctx):
-    """Cria a categoria e os canais privados em inglês."""
-    guild = ctx.guild
-    msg = await ctx.send("⏳ Creating Family Headquarters...")
-
-    # Categoria em Inglês
-    nome_categoria = "🍷 FAMILY HEADQUARTERS"
-    categoria = discord.utils.get(guild.categories, name=nome_categoria)
-    if not categoria:
-        categoria = await guild.create_category(nome_categoria)
-
-    canais_criados = []
-
-    for key, nome_familia in FAMILIAS.items():
-        cargo_familia = discord.utils.get(guild.roles, name=nome_familia)
-
-        if not cargo_familia:
-            await ctx.send(f"⚠️ Role **{nome_familia}** not found! Please create it in Discord settings.")
-            continue
-
-        # Nome do canal em Inglês (ex: #🥃-corleone-hq)
-        nome_canal = f"🥃-{key}-hq"
-
-        canal_existente = discord.utils.get(guild.text_channels, name=nome_canal)
-        if canal_existente:
-            canais_criados.append(canal_existente.mention)
-            continue
-
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(read_messages=False),
-            cargo_familia: discord.PermissionOverwrite(read_messages=True, send_messages=True, read_message_history=True)
-        }
-
-        canal = await guild.create_text_channel(
-            name=nome_canal,
-            category=categoria,
-            overwrites=overwrites,
-            topic=f"Secret Headquarters for {nome_familia}. Authorized personnel only."
-        )
-        canais_criados.append(canal.mention)
-
-    await msg.edit(content="✅ **Family Headquarters created successfully!**\n" + "\n".join(canais_criados))
-
-
 @bot.command(name="setup_capo")
 @commands.has_permissions(administrator=True)
 async def setup_capo(ctx):
@@ -367,7 +365,7 @@ async def setup_capo(ctx):
         "2. **Protection:** És a espada e o escudo dos teus homens. Se um cai, a Família responde.\n"
         "3. **Silence:** O que é falado na administração da Família morre na tumba. Traidores não têm segunda oportunidade.\n\n"
         "---\n"
-        "⚠️ **Reivindica a tua Família abaixo.** Ao clicar, assume a liderança do território. Apenas 1 Capo por Família."
+        "⚠️ **Reivindica a tua Família abaixo.** Ao clicar, assume a liderança e ativa o QG Privado da Família."
     )
     await ctx.send(content=texto, view=CapoRegistryView())
 
@@ -410,7 +408,7 @@ async def on_message(message):
         await message.channel.send(content=f"**{message.author.display_name}**: {message.content}", view=TranslateView())
         try:
             await message.delete()
-        except Exception:
+        except discord.Forbidden:
             pass
 
 token = os.getenv("DISCORD_TOKEN")
