@@ -120,6 +120,12 @@ class CapoRegistryView(discord.ui.View):
 
         await member.add_roles(cargo_familia)
         await interaction.response.send_message(f"🍷 **Honra e Lealdade!** Assumiste o comando da **{nome_familia}**!", ephemeral=True)
+        await enviar_log_mafia(
+        guild, 
+        "🍷 NOVO CAPO NOMEADO", 
+        f"{member.mention} assumiu a liderança da **{nome_familia}**!", 
+        discord.Color.gold()
+        )
 
     @discord.ui.button(label="Corleone", style=discord.ButtonStyle.primary, emoji="🍷", custom_id="capo_corleone", row=1)
     async def capo_corleone(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -196,7 +202,13 @@ class SoldierEnlistView(discord.ui.View):
                 await member.remove_roles(c_antigo)
 
         await member.add_roles(cargo_familia)
-        await interaction.response.send_message(f"🗡️ Bem-vindo à **{nome_familia}**! Cumpre o Pacto de Omertà e obedece ao teu Capo.", ephemeral=True)
+        aawait interaction.response.send_message(f"🗡️ Bem-vindo à **{nome_familia}**! Cumpre o Pacto de Omertà e obedece ao teu Capo.", ephemeral=True)
+        await enviar_log_mafia(
+        guild, 
+        "🗡️ NOVO SOLDADO ALISTADO", 
+        f"{member.mention} juntou-se à **{nome_familia}**!", 
+        discord.Color.blue()
+        )
 
     @discord.ui.button(label="Corleone", style=discord.ButtonStyle.success, emoji="🗡️", custom_id="soldier_corleone", row=1)
     async def soldier_corleone(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -218,6 +230,81 @@ class SoldierEnlistView(discord.ui.View):
     async def soldier_bonanno(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.handle_soldier_join(interaction, "bonanno")
 
+# --- SISTEMA DE LOGS E AUDITORIA DA MÁFIA ---
+
+async def enviar_log_mafia(guild: discord.Guild, titulo: str, descricao: str, cor: discord.Color):
+    """Envia um registo de atividade para o canal privado de logs."""
+    canal_log = discord.utils.get(guild.text_channels, name="🕶️-mafia-logs")
+    if canal_log:
+        embed = discord.Embed(
+            title=titulo,
+            description=descricao,
+            color=cor,
+            timestamp=discord.utils.utcnow()
+        )
+        embed.set_footer(text="Máfia System • Registro de Lealdade")
+        await canal_log.send(embed=embed)
+
+@bot.command(name="setup_logs")
+@commands.has_permissions(administrator=True)
+async def setup_logs(ctx):
+    """Cria o canal privado de logs para a Staff e Don."""
+    guild = ctx.guild
+    nome_canal = "🕶️-mafia-logs"
+    
+    canal_existente = discord.utils.get(guild.text_channels, name=nome_canal)
+    if canal_existente:
+        await ctx.send(f"⚠️ O canal de logs já existe: {canal_existente.mention}")
+        return
+
+    overwrites = {
+        guild.default_role: discord.PermissionOverwrite(read_messages=False),
+        guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+    }
+
+    # Dá acesso aos administradores
+    for role in guild.roles:
+        if role.permissions.administrator:
+            overwrites[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+
+    canal = await guild.create_text_channel(
+        name=nome_canal,
+        overwrites=overwrites,
+        topic="Registo oficial de movimentações e lealdade das Famílias."
+    )
+    await ctx.send(f"✅ Canal de logs criado com sucesso: {canal.mention}")
+
+@bot.command(name="status_familias")
+@commands.has_permissions(administrator=True)
+async def status_familias(ctx):
+    """Exibe um relatório detalhado de todas as Famílias, Capos e número de Soldados."""
+    guild = ctx.guild
+    cargo_capo = discord.utils.get(guild.roles, name="Capo")
+    cargo_soldier = discord.utils.get(guild.roles, name="Soldier")
+
+    embed = discord.Embed(
+        title="📊 RELATÓRIO DE PODER DAS FAMÍLIAS",
+        color=discord.Color.dark_red(),
+        timestamp=discord.utils.utcnow()
+    )
+
+    for key, nome_familia in FAMILIAS.items():
+        cargo_fam = discord.utils.get(guild.roles, name=nome_familia)
+        if not cargo_fam:
+            continue
+
+        capos = [m.mention for m in cargo_fam.members if cargo_capo and cargo_capo in m.roles]
+        capo_str = capos[0] if capos else "*Sem Capo Nomeado*"
+        
+        qtd_soldados = sum(1 for m in cargo_fam.members if cargo_soldier and cargo_soldier in m.roles)
+        
+        embed.add_field(
+            name=f"🍷 {nome_familia}",
+            value=f"**Capo:** {capo_str}\n**Soldados:** `{qtd_soldados}/{LIMITE_SOLDIERS}`",
+            inline=False
+        )
+
+    await ctx.send(embed=embed)
 
 # --- COMANDOS DE SETUP ---
 
