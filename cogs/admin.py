@@ -8,18 +8,13 @@ class Admin(commands.Cog):
         print("[ADMIN] Cog de administração carregado.")
 
     @app_commands.command(name="clear", description="Limpa mensagens do chat atual (Apenas Administradores)")
-    @app_commands.describe(quantidade="Número de mensagens a apagar (padrão: 50, máximo: 100)")
+    @app_commands.describe(quantidade="Número de mensagens a apagar (deixa em branco para apagar todas as possíveis)")
     @app_commands.checks.has_permissions(administrator=True)
-    async def clear(self, interaction: discord.Interaction, quantidade: int = 50):
-        # Responde de forma privada para não poluir o chat antes de apagar
+    async def clear(self, interaction: discord.Interaction, quantidade: int = None):
         await interaction.response.defer(ephemeral=True)
 
-        if quantidade < 1:
-            await interaction.followup.send("⚠️ Indica um número válido de mensagens para apagar.", ephemeral=True)
-            return
-
         try:
-            # Apaga as mensagens no canal atual
+            # Se quantidade for None, o limit=None apaga todas as mensagens possíveis (respeitando o limite de 14 dias do Discord)
             deleted = await interaction.channel.purge(limit=quantidade)
             await interaction.followup.send(f"🧹 **{len(deleted)}** mensagens foram apagadas com sucesso.", ephemeral=True)
         except discord.Forbidden:
