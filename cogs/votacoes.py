@@ -65,7 +65,6 @@ def build_resultado_futurista_embed(grupo: dict, guild: discord.Guild, final: bo
         inline=False
     )
 
-    # Métricas formatadas em string única e limpa para evitar SyntaxError
     metricas = f"```ini\n[Votos Registados] : {total_votos}\n[Membros Elegíveis]: {elegiveis}\n[Taxa de Adesão]   : {taxa_adesao:.1f}%\n```"
     embed.add_field(name="⚙️ MÉTRICAS DE QUÓRUM", value=metricas, inline=False)
     
@@ -73,7 +72,6 @@ def build_resultado_futurista_embed(grupo: dict, guild: discord.Guild, final: bo
     embed.set_footer(text=f"SISTEMA OMERTA // Famílias Sincronizadas: {familias_txt}")
     return embed
 
-    async def setup(bot):
-    # Se usaste uma classe para a Cog:
-    # await bot.add_cog(Votacoes(bot)) 
+
+async def setup(bot):
     pass
