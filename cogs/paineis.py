@@ -49,24 +49,6 @@ class CapoRegistryView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Read Omertà in my language", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="translate_omerta_capo", row=0)
-    async def translate_omerta(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
-        user_locale = str(interaction.locale).split("-")[0] or "pt"
-        pacto_texto = (
-            "📜 **O PACTO DE OMERTÀ DOS CAPOS**\n\n"
-            "1. **Lealdade Absoluta:** As tuas ordens vêm do Don e dos Capodecinas. A tua palavra é a lei para os teus 20 Soldados.\n"
-            "2. **Proteção:** És a espada e o escudo dos teus homens. Se um cai, a Família responde.\n"
-            "3. **Silêncio:** O que é falado na administração da Família morre na tumba. Traidores não têm segunda oportunidade.\n\n"
-            "⚠️ *Reivindica a tua Família abaixo. Apenas 1 Capo por Família.*"
-        )
-        try:
-            translated = await asyncio.to_thread(GoogleTranslator(source='auto', target=user_locale).translate, pacto_texto)
-            await interaction.followup.send(translated, ephemeral=True)
-        except Exception as e:
-            print(f"[TRADUTOR] Erro no painel de capos: {type(e).__name__}: {e}")
-            await interaction.followup.send(pacto_texto, ephemeral=True)
-
     async def handle_capo_claim(self, interaction: discord.Interaction, familia_key: str):
         guild = interaction.guild
         member = interaction.user
@@ -100,6 +82,7 @@ class CapoRegistryView(discord.ui.View):
             }
             if not categoria:
                 categoria = await guild.create_category(nome_cat, overwrites=overwrites_base)
+            
             # Canal Anúncios
             canal_anuncios = discord.utils.get(categoria.text_channels, name="📜-capo-announcements")
             if not canal_anuncios:
@@ -109,6 +92,7 @@ class CapoRegistryView(discord.ui.View):
                     cargo_capo: discord.PermissionOverwrite(read_messages=True, send_messages=True)
                 }
                 await guild.create_text_channel("📜-capo-announcements", category=categoria, overwrites=overwrites_announcements, topic=f"Official announcements for {nome_familia}.")
+            
             # Canal Warnings
             canal_warnings = discord.utils.get(categoria.text_channels, name="🚨-warnings")
             overwrites_warnings = {
@@ -120,6 +104,7 @@ class CapoRegistryView(discord.ui.View):
                 await guild.create_text_channel("🚨-warnings", category=categoria, overwrites=overwrites_warnings, topic=f"Canal de warnings vindos da Cúpula exclusivo para o Capo da {nome_familia}.")
             else:
                 await canal_warnings.set_permissions(member, read_messages=True, send_messages=False, read_message_history=True)
+            
             # Canal Votações
             canal_votacoes = discord.utils.get(categoria.text_channels, name="🗳️-votações")
             if not canal_votacoes:
@@ -128,14 +113,17 @@ class CapoRegistryView(discord.ui.View):
                     cargo_familia: discord.PermissionOverwrite(read_messages=True, send_messages=True, read_message_history=True)
                 }
                 await guild.create_text_channel("🗳️-votações", category=categoria, overwrites=overwrites_votacoes, topic=f"Canal de votações oficiais para a {nome_familia}.")
+            
             # Chat Geral
             canal_chat = discord.utils.get(categoria.text_channels, name="💬-general-chat")
             if not canal_chat:
                 await guild.create_text_channel("💬-general-chat", category=categoria, topic=f"Secret HQ text chat for {nome_familia}.")
+            
             # Sala de Voz
             canal_voz = discord.utils.get(categoria.voice_channels, name="📢-meeting-room")
             if not canal_voz:
                 await guild.create_voice_channel("📢-meeting-room", category=categoria)
+            
             await interaction.followup.send(
                 f"🍷 **Honra e Lealdade!** Assumiste o comando da **{nome_familia}**!\n📂 QG configurado com sucesso!", ephemeral=True
             )
@@ -146,41 +134,45 @@ class CapoRegistryView(discord.ui.View):
     @discord.ui.button(label="Corleone", style=discord.ButtonStyle.primary, emoji="🍷", custom_id="capo_corleone", row=1)
     async def capo_corleone(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.handle_capo_claim(interaction, "corleone")
+
     @discord.ui.button(label="Gambino", style=discord.ButtonStyle.primary, emoji="🍷", custom_id="capo_gambino", row=1)
     async def capo_gambino(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.handle_capo_claim(interaction, "gambino")
+
     @discord.ui.button(label="Genovese", style=discord.ButtonStyle.primary, emoji="🍷", custom_id="capo_genovese", row=1)
     async def capo_genovese(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.handle_capo_claim(interaction, "genovese")
+
     @discord.ui.button(label="Lucchese", style=discord.ButtonStyle.primary, emoji="🍷", custom_id="capo_lucchese", row=2)
     async def capo_lucchese(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.handle_capo_claim(interaction, "lucchese")
+
     @discord.ui.button(label="Bonanno", style=discord.ButtonStyle.primary, emoji="🍷", custom_id="capo_bonanno", row=2)
     async def capo_bonanno(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.handle_capo_claim(interaction, "bonanno")
 
-
-class SoldierEnlistView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-
-    @discord.ui.button(label="Read Omertà in my language", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="translate_omerta_soldier", row=0)
+    @discord.ui.button(label="Read Omertà in my language", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="translate_omerta_capo", row=2)
     async def translate_omerta(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         user_locale = str(interaction.locale).split("-")[0] or "pt"
         pacto_texto = (
-            "📜 **O PACTO DE OMERTÀ DOS SOLDADOS**\n\n"
-            "1. **Silêncio Absoluto (Omertà):** Nunca fales sobre negócios da Família com autoridades ou rivais. A língua solta encomenda o teu caixão.\n"
-            "2. **Cadeia de Comando:** Tu só respondes ao Capo da tua Família.\n"
-            "3. **A Família Primeiro:** A lealdade vem antes do teu sangue, dos teus amigos e da tua própria vida.\n\n"
-            "⚠️ *Junta-te a um Regime abaixo. Apenas podes entrar em Famílias que já tenham Capo (Máx. 20 soldados).* "
+            "📜 **O PACTO DE OMERTÀ DOS CAPOS**\n\n"
+            "1. **Lealdade Absoluta:** As tuas ordens vêm do Don e dos Capodecinas. A tua palavra é a lei para os teus 20 Soldados.\n"
+            "2. **Proteção:** És a espada e o escudo dos teus homens. Se um cai, a Família responde.\n"
+            "3. **Silêncio:** O que é falado na administração da Família morre na tumba. Traidores não têm segunda oportunidade.\n\n"
+            "⚠️ *Reivindica a tua Família abaixo. Apenas 1 Capo por Família.*"
         )
         try:
             translated = await asyncio.to_thread(GoogleTranslator(source='auto', target=user_locale).translate, pacto_texto)
             await interaction.followup.send(translated, ephemeral=True)
         except Exception as e:
-            print(f"[TRADUTOR] Erro no painel de soldiers: {type(e).__name__}: {e}")
+            print(f"[TRADUTOR] Erro no painel de capos: {type(e).__name__}: {e}")
             await interaction.followup.send(pacto_texto, ephemeral=True)
+
+
+class SoldierEnlistView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
 
     async def handle_soldier_join(self, interaction: discord.Interaction, familia_key: str):
         guild = interaction.guild
@@ -215,18 +207,40 @@ class SoldierEnlistView(discord.ui.View):
     @discord.ui.button(label="Corleone", style=discord.ButtonStyle.success, emoji="🗡️", custom_id="soldier_corleone", row=1)
     async def soldier_corleone(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.handle_soldier_join(interaction, "corleone")
+
     @discord.ui.button(label="Gambino", style=discord.ButtonStyle.success, emoji="🗡️", custom_id="soldier_gambino", row=1)
     async def soldier_gambino(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.handle_soldier_join(interaction, "gambino")
+
     @discord.ui.button(label="Genovese", style=discord.ButtonStyle.success, emoji="🗡️", custom_id="soldier_genovese", row=1)
     async def soldier_genovese(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.handle_soldier_join(interaction, "genovese")
+
     @discord.ui.button(label="Lucchese", style=discord.ButtonStyle.success, emoji="🗡️", custom_id="soldier_lucchese", row=2)
     async def soldier_lucchese(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.handle_soldier_join(interaction, "lucchese")
+
     @discord.ui.button(label="Bonanno", style=discord.ButtonStyle.success, emoji="🗡️", custom_id="soldier_bonanno", row=2)
     async def soldier_bonanno(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.handle_soldier_join(interaction, "bonanno")
+
+    @discord.ui.button(label="Read Omertà in my language", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="translate_omerta_soldier", row=2)
+    async def translate_omerta(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        user_locale = str(interaction.locale).split("-")[0] or "pt"
+        pacto_texto = (
+            "📜 **O PACTO DE OMERTÀ DOS SOLDADOS**\n\n"
+            "1. **Silêncio Absoluto (Omertà):** Nunca fales sobre negócios da Família com autoridades ou rivais. A língua solta encomenda o teu caixão.\n"
+            "2. **Cadeia de Comando:** Tu só respondes ao Capo da tua Família.\n"
+            "3. **A Família Primeiro:** A lealdade vem antes do teu sangue, dos teus amigos e da tua própria vida.\n\n"
+            "⚠️ *Junta-te a um Regime abaixo. Apenas podes entrar em Famílias que já tenham Capo (Máx. 20 soldados).* "
+        )
+        try:
+            translated = await asyncio.to_thread(GoogleTranslator(source='auto', target=user_locale).translate, pacto_texto)
+            await interaction.followup.send(translated, ephemeral=True)
+        except Exception as e:
+            print(f"[TRADUTOR] Erro no painel de soldiers: {type(e).__name__}: {e}")
+            await interaction.followup.send(pacto_texto, ephemeral=True)
 
 
 class Paineis(commands.Cog):
