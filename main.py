@@ -23,6 +23,12 @@ async def load_extensions():
             print(f"[ERRO] Falha ao carregar '{ext}': {type(e).__name__}: {e}")
             traceback.print_exc()
 
+@bot.tree.command(name="restart", description="Reinicia a sessão do bot (Apenas Administradores).")
+@app_commands.checks.has_permissions(administrator=True)
+async def reiniciar(interaction: discord.Interaction):
+    await interaction.response.send_message("🔄 [SISTEMA OMERTA] Reiniciando subsistemas...", ephemeral=True)
+    await bot.close() # O Render deteta o encerramento e volta a ligar o bot em poucos segundos!
+
 @bot.event
 async def on_ready():
     print(f"Bot ligado como {bot.user} (ID: {bot.user.id})")
