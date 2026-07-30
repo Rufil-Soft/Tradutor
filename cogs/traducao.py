@@ -9,21 +9,22 @@ class TranslateView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    # Emoji mais vistoso e evidente (🌍) sem ocupar espaço com texto
     @discord.ui.button(style=discord.ButtonStyle.secondary, emoji="🌍", custom_id="persistent_translate_button")
     async def translate_button_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
 
-        message_text = interaction.message.content
+        message = interaction.message
+        # Extrai o texto do embed da mensagem
+        if message.embeds:
+            message_text = message.embeds[0].description
+        else:
+            message_text = message.content
+
         if not message_text:
             await interaction.followup.send("Não há texto para traduzir.", ephemeral=True)
             return
 
-        if ":" in message_text:
-            texto_para_traduzir = message_text.split(":", 1)[1].strip()
-        else:
-            texto_para_traduzir = message_text
-
+        texto_para_traduzir = message_text
         user_locale = (str(interaction.locale).split("-")[0] or "pt")[:2]
 
         cache_key = (texto_para_traduzir, user_locale)
@@ -55,7 +56,7 @@ class TranslateView(discord.ui.View):
 class Traducao(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        print("[TRADUÇÃO] Cog carregado. Botão compacto com 🌍 ativo.")
+        print("[TRADUÇÃO] Cog carregado com suporte a cor de role ativo.")
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -67,19 +68,28 @@ class Traducao(commands.Cog):
             return
 
         try:
-            conteudo_formatado = f"**{message.author.display_name}**: {message.content}"
+            # Cria um embed que herda a cor do cargo (role) do utilizador
+            embed = discord.Embed(
+                description=message.content,
+                color=message.author.color if message.author.color.value != 0 else discord.Color.default()
+            )
+            embed.set_author(
+                name=message.author.display_name,
+                icon_url=message.author.display_avatar.url if message.author.display_avatar else None
+            )
+
             files = [await a.to_file() for a in message.attachments]
 
             await message.delete()
             await message.channel.send(
-                content=conteudo_formatado,
+                embed=embed,
                 files=files,
                 view=TranslateView()
             )
         except discord.Forbidden:
             pass
         except Exception as e:
-            print(f"[TRADUÇÃO] Erro ao processar mensagem: {e}")
+            print(f"[TRADUÇÃO] Erro ao processar mensagem com cor de role: {e}")
 
 
 async def setup(bot: commands.Bot):
