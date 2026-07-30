@@ -25,7 +25,6 @@ FAMILIAS = {
 }
 LIMITE_SOLDIERS = 20
 
-# Cargos considerados "elegíveis" para as votações
 CARGOS_ELEGIVEIS = [
     "Don",
     "Capo",
@@ -35,13 +34,11 @@ CARGOS_ELEGIVEIS = [
     "Assistente"
 ]
 
-# Agregação de polls
 poll_groups = {}
 message_to_group = {}
 
 
 def contar_elegiveis(guild: discord.Guild) -> int:
-    """Conta membros do servidor que têm qualquer um dos cargos elegíveis."""
     elegiveis = set()
     for role_name in CARGOS_ELEGIVEIS:
         role = discord.utils.get(guild.roles, name=role_name)
@@ -215,7 +212,7 @@ class RanksView(discord.ui.View):
         user_locale = str(interaction.locale).split("-")[0] or "pt"
         ranks_texto = (
             "🏛️ **ORGANIZATION & HIERARCHY — COSA NOSTRA**\n\n"
-            "\"In our family, there is no room for freelancers. Every man has his place, his duty, and his weight on the scales of power.\"\n\n"
+            "\"In our family, there is no room for freelancers...\"\n\n"
             "🎩 **1. THE DON (The Boss)**\n"
             "The top of the pyramid. The Don commands the destiny of all Families, arbitrates territorial disputes, and maintains peace or declares war.\n\n"
             "🍷 **2. CAPOREGIME / CAPO (The Regime Leader)**\n"
@@ -299,6 +296,7 @@ class CapoRegistryView(discord.ui.View):
             }
             if not categoria:
                 categoria = await guild.create_category(nome_cat, overwrites=overwrites_base)
+            # Canal Anúncios
             canal_anuncios = discord.utils.get(categoria.text_channels, name="📜-capo-announcements")
             if not canal_anuncios:
                 overwrites_announcements = {
@@ -307,6 +305,7 @@ class CapoRegistryView(discord.ui.View):
                     cargo_capo: discord.PermissionOverwrite(read_messages=True, send_messages=True)
                 }
                 await guild.create_text_channel("📜-capo-announcements", category=categoria, overwrites=overwrites_announcements, topic=f"Official announcements for {nome_familia}.")
+            # Canal Warnings
             canal_warnings = discord.utils.get(categoria.text_channels, name="🚨-warnings")
             overwrites_warnings = {
                 guild.default_role: discord.PermissionOverwrite(read_messages=False),
@@ -317,6 +316,7 @@ class CapoRegistryView(discord.ui.View):
                 await guild.create_text_channel("🚨-warnings", category=categoria, overwrites=overwrites_warnings, topic=f"Canal de warnings vindos da Cúpula exclusivo para o Capo da {nome_familia}.")
             else:
                 await canal_warnings.set_permissions(member, read_messages=True, send_messages=False, read_message_history=True)
+            # Canal Votações
             canal_votacoes = discord.utils.get(categoria.text_channels, name="🗳️-votações")
             if not canal_votacoes:
                 overwrites_votacoes = {
@@ -324,9 +324,11 @@ class CapoRegistryView(discord.ui.View):
                     cargo_familia: discord.PermissionOverwrite(read_messages=True, send_messages=True, read_message_history=True)
                 }
                 await guild.create_text_channel("🗳️-votações", category=categoria, overwrites=overwrites_votacoes, topic=f"Canal de votações oficiais para a {nome_familia}.")
+            # Chat Geral
             canal_chat = discord.utils.get(categoria.text_channels, name="💬-general-chat")
             if not canal_chat:
                 await guild.create_text_channel("💬-general-chat", category=categoria, topic=f"Secret HQ text chat for {nome_familia}.")
+            # Sala de Voz
             canal_voz = discord.utils.get(categoria.voice_channels, name="📢-meeting-room")
             if not canal_voz:
                 await guild.create_voice_channel("📢-meeting-room", category=categoria)
@@ -432,6 +434,21 @@ def safe_create_task(coro):
         except Exception as e:
             print(f"[TASK ERROR] {type(e).__name__}: {e}")
     return asyncio.create_task(wrapper())
+
+
+# --- Botão para apagar o resultado agregado ---
+class DeleteResultView(discord.ui.View):
+    def __init__(self, group_id: str):
+        super().__init__(timeout=None)
+        self.group_id = group_id
+
+    @discord.ui.button(label="Delete", style=discord.ButtonStyle.danger, emoji="🗑️", custom_id="delete_result")
+    async def delete_result(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("Only administrators can delete the result.", ephemeral=True)
+            return
+        await interaction.message.delete()
+        limpar_grupo(self.group_id)
 
 
 # --- SISTEMA DE VOTAÇÕES (MODAL) ---
@@ -542,6 +559,7 @@ class DonPollModal(discord.ui.Modal, title="Criar Votação Oficial da Cúpula")
                         resultado[nome_familia] = f"❌ Falhou: {str(e)[:60]}"
                 await asyncio.sleep(1)
 
+            # Canal central (vote‑command)
             canal_origem = interaction.channel
             if canal_origem:
                 perms_origem = canal_origem.permissions_for(guild.me)
@@ -551,17 +569,23 @@ class DonPollModal(discord.ui.Modal, title="Criar Votação Oficial da Cúpula")
                         poll_origem = discord.Poll(question=pergunta_texto, duration=timedelta(hours=horas))
                         for opt in raw_opcoes:
                             poll_origem.add_answer(text=opt)
-                        await canal_origem.send(
-                            content=f"🗳️ **VOTAÇÃO OFICIAL DA CÚPULA** (Criada por {interaction.user.mention}) — Registo permanente",
+                        central_msg = await canal_origem.send(
+                            content=f"🗳️ **VOTAÇÃO OFICIAL DA CÚPULA** (Criada por {interaction.user.mention})",
                             poll=poll_origem
                         )
+                        safe_create_task(self._delete_later(central_msg, horas, group_id=None))
                     except Exception:
                         pass
                     if grupo["member_polls"]:
                         try:
-                            embed_msg = await canal_origem.send(embed=build_resultado_embed(grupo, guild))
+                            embed_msg = await canal_origem.send(
+                                embed=build_resultado_embed(grupo, guild),
+                                view=DeleteResultView(group_id)
+                            )
                             grupo["embed_message_id"] = embed_msg.id
                             safe_create_task(self._delete_later_group_only(horas, group_id))
+                            # SEPARADOR VISUAL ENTRE VOTAÇÕES
+                            await canal_origem.send("━━━━━━━━━━━━━━━━━━")
                         except Exception as e:
                             print(f"[VOTACAO] Erro ao enviar embed agregado: {e}")
 
@@ -576,9 +600,9 @@ class DonPollModal(discord.ui.Modal, title="Criar Votação Oficial da Cúpula")
                     resposta += f"• **{fam}**: {motivo}\n"
             if not sucessos and not falhas:
                 resposta = "⚠️ Nenhuma família processada."
-            resposta += f"\n⏳ As polls das famílias serão apagadas após **{horas}** horas."
+            resposta += f"\n⏳ As polls das famílias e a poll central serão apagadas após **{horas}** horas."
             if grupo["member_polls"]:
-                resposta += "\n📊 Resultado agregado atualizado em tempo real no canal central."
+                resposta += "\n📊 O resultado agregado ficará visível com botão de eliminar."
             await interaction.followup.send(resposta, ephemeral=True)
 
         except Exception as erro:
@@ -697,7 +721,7 @@ async def setup_capos_message(ctx):
 @commands.has_permissions(administrator=True)
 async def setup_vota_message(ctx):
     guild = ctx.guild
-    nome_canal = "🎯-don-votes"
+    nome_canal = "🗳️ vote-command"   # NOME ATUALIZADO
     canal_existente = discord.utils.get(guild.text_channels, name=nome_canal)
     if canal_existente:
         await ctx.send(f"⚠️ O canal central de votações já existe: {canal_existente.mention}")
