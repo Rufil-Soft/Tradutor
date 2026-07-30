@@ -4,7 +4,6 @@ from discord.ext import commands
 from deep_translator import GoogleTranslator
 from bot import bot
 
-# Cache de traduções para evitar chamadas repetidas
 translation_cache = {}
 
 class TranslateView(discord.ui.View):
@@ -20,7 +19,6 @@ class TranslateView(discord.ui.View):
             await interaction.followup.send("Não há texto para traduzir.", ephemeral=True)
             return
 
-        # Se a mensagem tiver o formato "Autor: texto", extrai só o texto
         if ":" in message_text:
             texto_para_traduzir = message_text.split(":", 1)[1].strip()
         else:
@@ -28,7 +26,6 @@ class TranslateView(discord.ui.View):
 
         user_locale = (str(interaction.locale).split("-")[0] or "pt")[:2]
 
-        # Verifica cache
         cache_key = (texto_para_traduzir, user_locale)
         if cache_key in translation_cache:
             translated = translation_cache[cache_key]
@@ -62,26 +59,20 @@ class Traducao(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        # Ignora bots, mensagens vazias e comandos
         if message.author.bot or not message.content:
             return
         if message.content.startswith(bot.command_prefix):
             return
-
-        # Não interferir no canal de comunicados
         if message.channel.name == "🎯-capos-message":
             return
 
-        # Envia o texto do utilizador com o botão de tradução
         try:
             await message.channel.send(
                 content=f"**{message.author.display_name}**: {message.content}",
                 view=TranslateView()
             )
-            # Apaga a mensagem original para manter o chat limpo
             await message.delete()
         except discord.Forbidden:
-            # Se não tiver permissão para apagar, apenas envia o botão sem apagar
             pass
         except Exception as e:
             print(f"[TRADUÇÃO] Erro ao processar mensagem: {e}")
