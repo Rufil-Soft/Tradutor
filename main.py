@@ -39,7 +39,6 @@ async def start_dummy_server():
 # --- TRADUÇÃO VIA MENU DE CONTEXTO (CLIQUE DIREITO NA MENSAGEM) ---
 @bot.tree.context_menu(name="Traduzir Mensagem")
 async def traduzir_context(interaction: discord.Interaction, message: discord.Message):
-    # 🛑 EVITA TIMEOUT NA TRADUÇÃO
     await interaction.response.defer(ephemeral=True)
     
     if not message.content:
@@ -162,7 +161,6 @@ class CapoRegistryView(discord.ui.View):
             await interaction.response.send_message(f"❌ O cargo **{nome_familia}** não existe no servidor. Cria-o nas configurações do Discord.", ephemeral=True)
             return
 
-        # 🧹 LIMPEZA INTELIGENTE DE CAPOS INATIVOS
         for m in list(cargo_familia.members):
             if cargo_capo not in m.roles:
                 try:
@@ -381,6 +379,71 @@ class SoldierEnlistView(discord.ui.View):
         await self.handle_soldier_join(interaction, "bonanno")
 
 
+# --- SISTEMA DE VOTAÇÕES INTERATIVAS (MODAL + SLASH COMMAND) ---
+class DonPollModal(discord.ui.Modal, title="Criar Votação Oficial da Cúpula"):
+    pergunta = discord.ui.TextInput(
+        label="Pergunta da Votação",
+        placeholder="Ex: A que horas atacamos amanhã?",
+        style=discord.TextStyle.short,
+        required=True
+    )
+    opcoes = discord.ui.TextInput(
+        label="Opções (separadas por vírgula)",
+        placeholder="Ex: 14h, 16h, 20h",
+        style=discord.TextStyle.paragraph,
+        required=True
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        
+        pergunta_texto = self.pergunta.value
+        raw_opcoes = [o.strip() for o in self.opcoes.value.split(",") if o.strip()]
+        
+        if len(raw_opcoes) < 2:
+            await interaction.followup.send("❌ Tens de fornecer pelo menos 2 opções válidas separadas por vírgula.", ephemeral=True)
+            return
+        
+        if len(raw_opcoes) > 10:
+            await interaction.followup.send("❌ O Discord permite no máximo 10 opções por votação.", ephemeral=True)
+            return
+
+        # Cria a votação nativa interativa do Discord
+        poll = discord.Poll(question=pergunta_texto, duration=24)
+        for opt in raw_opcoes:
+            poll.add_answer(text=opt)
+
+        guild = interaction.guild
+        enviados = 0
+
+        # Propaga a votação interativa para o canal 🗳️-votações de cada Família
+        for familia_key, nome_familia in FAMILIAS.items():
+            nome_cat = f"🍷 {nome_familia.upper()}"
+            categoria = discord.utils.get(guild.categories, name=nome_cat)
+            if categoria:
+                canal_votacoes = discord.utils.get(categoria.text_channels, name="🗳️-votações")
+                if canal_votacoes:
+                    try:
+                        await canal_votacoes.send(
+                            content=f"🗳️ **VOTAÇÃO DA CÚPULA** (Aberta por {interaction.user.mention})",
+                            poll=poll
+                        )
+                        enviados += 1
+                    except Exception as e:
+                        print(f"Erro ao enviar votação para {nome_familia}: {e}")
+        
+        await interaction.followup.send(
+            f"✅ Votação interativa criada e propagada com sucesso para o canal de votações de **{enviados}** Famílias!", 
+            ephemeral=True
+        )
+
+
+@bot.tree.command(name="votacao", description="Abre um formulário para o Don criar uma votação global nas Famílias.")
+@commands.has_permissions(administrator=True)
+async def votacao_slash(interaction: discord.Interaction):
+    await interaction.response.send_modal(DonPollModal())
+
+
 # --- COMANDOS DE SETUP E RELATÓRIO ---
 
 @bot.command(name="setup_logs")
@@ -466,7 +529,7 @@ async def setup_vota_message(ctx):
     canal = await guild.create_text_channel(
         name=nome_canal,
         overwrites=overwrites,
-        topic="Tudo o que for enviado aqui (texto, embeds ou polls) será propagado automaticamente para o canal 🗳️-votações de todas as Famílias."
+        topic="Canal central para a Cúpula. Usa o comando de barra /votacao para abrir o formulário interativo de votação."
     )
     await ctx.send(f"✅ Canal central de votações criado com sucesso: {canal.mention}")
 
@@ -605,7 +668,7 @@ async def on_ready():
     bot.add_view(CapoRegistryView())
     bot.add_view(SoldierEnlistView())
     
-    # Sincroniza os menus de contexto (tradução por clique direito)
+    # Sincroniza os menus de contexto e comandos de barra
     try:
         await bot.tree.sync()
         print("Comandos de barra/contexto sincronizados com sucesso.")
@@ -616,7 +679,7 @@ async def on_ready():
     print(f"Bot Máfia & Tradutor ligado como {bot.user}")
 
 
-# --- GESTÃO DE MENSAGENS CENTRAIS (AVISOS E VOTAÇÕES) ---
+# --- GESTÃO DE MENSAGENS CENTRAIS (AVISOS DA CÚPULA) ---
 @bot.event
 async def on_message(message):
     if message.author.bot:
@@ -647,38 +710,6 @@ async def on_message(message):
                         await canal_warnings.send(embed=embed)
                     except Exception as e:
                         print(f"Erro ao propagar aviso para {nome_familia}: {e}")
-        
-        try:
-            await message.add_reaction("✅")
-        except discord.Forbidden:
-            pass
-        return
-
-    # Propagação de Votações globais do Don
-    if message.channel.name == "🎯-don-votes":
-        for familia_key, nome_familia in FAMILIAS.items():
-            nome_cat = f"🍷 {nome_familia.upper()}"
-            categoria = discord.utils.get(message.guild.categories, name=nome_cat)
-            if categoria:
-                canal_votacoes = discord.utils.get(categoria.text_channels, name="🗳️-votações")
-                if canal_votacoes:
-                    try:
-                        embed = discord.Embed(
-                            title="🗳️ NOVA VOTAÇÃO OFICIAL DA CÚPULA",
-                            description=message.content or "*(Ver votação em anexo/poll)*",
-                            color=discord.Color.dark_purple(),
-                            timestamp=discord.utils.utcnow()
-                        )
-                        embed.set_author(
-                            name=message.author.display_name, 
-                            icon_url=message.author.display_avatar.url if message.author.display_avatar else None
-                        )
-                        if message.attachments:
-                            embed.set_image(url=message.attachments[0].url)
-                        
-                        await canal_votacoes.send(embed=embed)
-                    except Exception as e:
-                        print(f"Erro ao propagar votação para {nome_familia}: {e}")
         
         try:
             await message.add_reaction("✅")
