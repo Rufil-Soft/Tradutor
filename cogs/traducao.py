@@ -9,7 +9,8 @@ class TranslateView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Traduzir", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="persistent_translate_button")
+    # Emoji mais vistoso e evidente (🌍) sem ocupar espaço com texto
+    @discord.ui.button(style=discord.ButtonStyle.secondary, emoji="🌍", custom_id="persistent_translate_button")
     async def translate_button_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
 
@@ -18,9 +19,12 @@ class TranslateView(discord.ui.View):
             await interaction.followup.send("Não há texto para traduzir.", ephemeral=True)
             return
 
-        # Define o idioma com base nas definições do Discord do utilizador
+        if ":" in message_text:
+            texto_para_traduzir = message_text.split(":", 1)[1].strip()
+        else:
+            texto_para_traduzir = message_text
+
         user_locale = (str(interaction.locale).split("-")[0] or "pt")[:2]
-        texto_para_traduzir = message_text
 
         cache_key = (texto_para_traduzir, user_locale)
         if cache_key in translation_cache:
@@ -43,7 +47,7 @@ class TranslateView(discord.ui.View):
             return
 
         await interaction.followup.send(
-            f"🌐 **Tradução ({user_locale.upper()}):**\n{translated}",
+            f"🌍 **Tradução ({user_locale.upper()}):**\n{translated}",
             ephemeral=True
         )
 
@@ -51,7 +55,7 @@ class TranslateView(discord.ui.View):
 class Traducao(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        print("[TRADUÇÃO] Cog carregado. Botão de tradução ativo.")
+        print("[TRADUÇÃO] Cog carregado. Botão compacto com 🌍 ativo.")
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -63,18 +67,10 @@ class Traducao(commands.Cog):
             return
 
         try:
-            # Em vez de apagar a mensagem, edita-a adicionando a view com o botão!
-            # Nota: No Discord, se o bot não for o autor da mensagem, não a pode editar diretamente.
-            # Por isso, a forma limpa de manter o autor original e por o botão é via webhook ou criando uma nova formatada.
-            
-            # Se preferires manter exatamente quem enviou sem webhooks, a forma mais fiável 
-            # é enviar a mensagem com o nome do autor no texto e o botão em baixo:
             conteudo_formatado = f"**{message.author.display_name}**: {message.content}"
-            
-            # Guarda os anexos se houver (imagens, etc.)
             files = [await a.to_file() for a in message.attachments]
 
-            await message.delete() # Remove a original sem formatação de botões
+            await message.delete()
             await message.channel.send(
                 content=conteudo_formatado,
                 files=files,
@@ -83,7 +79,7 @@ class Traducao(commands.Cog):
         except discord.Forbidden:
             pass
         except Exception as e:
-            print(f"[TRADUÇÃO] Erro ao adicionar botão à mensagem: {e}")
+            print(f"[TRADUÇÃO] Erro ao processar mensagem: {e}")
 
 
 async def setup(bot: commands.Bot):
