@@ -5,12 +5,54 @@ from deep_translator import GoogleTranslator
 
 translation_cache = {}
 
+class TranslateView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Traduzir", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="persistent_translate_button")
+    async def translate_button_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+
+        message_text = interaction.message.content
+        if not message_text:
+            await interaction.followup.send("Não há texto para traduzir.", ephemeral=True)
+            return
+
+        # Define o idioma com base nas definições do Discord do utilizador
+        user_locale = (str(interaction.locale).split("-")[0] or "pt")[:2]
+        texto_para_traduzir = message_text
+
+        cache_key = (texto_para_traduzir, user_locale)
+        if cache_key in translation_cache:
+            translated = translation_cache[cache_key]
+        else:
+            try:
+                translated = await asyncio.to_thread(
+                    GoogleTranslator(source='auto', target=user_locale).translate,
+                    texto_para_traduzir
+                )
+                if translated:
+                    translation_cache[cache_key] = translated
+            except Exception as e:
+                print(f"[TRADUTOR] Erro na tradução: {e}")
+                await interaction.followup.send("Erro ao traduzir. Tenta novamente.", ephemeral=True)
+                return
+
+        if not translated:
+            await interaction.followup.send("Não foi possível traduzir o texto.", ephemeral=True)
+            return
+
+        await interaction.followup.send(
+            f"🌐 **Tradução ({user_locale.upper()}):**\n{translated}",
+            ephemeral=True
+        )
+
+
 class Traducao(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        print("[TRADUÇÃO] Cog carregado. Sistema por reação ativo.")
+        print("[TRADUÇÃO] Cog carregado. Botão de tradução ativo.")
 
-    # 1. Adiciona o emoji 🔀 automaticamente a todas as novas mensagens
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         if message.author.bot or not message.content:
@@ -21,91 +63,27 @@ class Traducao(commands.Cog):
             return
 
         try:
-            await message.add_reaction("🔀")
+            # Em vez de apagar a mensagem, edita-a adicionando a view com o botão!
+            # Nota: No Discord, se o bot não for o autor da mensagem, não a pode editar diretamente.
+            # Por isso, a forma limpa de manter o autor original e por o botão é via webhook ou criando uma nova formatada.
+            
+            # Se preferires manter exatamente quem enviou sem webhooks, a forma mais fiável 
+            # é enviar a mensagem com o nome do autor no texto e o botão em baixo:
+            conteudo_formatado = f"**{message.author.display_name}**: {message.content}"
+            
+            # Guarda os anexos se houver (imagens, etc.)
+            files = [await a.to_file() for a in message.attachments]
+
+            await message.delete() # Remove a original sem formatação de botões
+            await message.channel.send(
+                content=conteudo_formatado,
+                files=files,
+                view=TranslateView()
+            )
         except discord.Forbidden:
             pass
         except Exception as e:
-            print(f"[TRADUÇÃO] Erro ao adicionar reação: {e}")
-
-    # 2. Quando alguém clica na reação 🔀
-    @commands.Cog.listener()
-    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
-        # Ignora reações do próprio bot
-        if payload.user_id == self.bot.user.id:
-            return
-
-        # Verifica se o emoji é 🔀
-        if str(payload.emoji) != "🔀":
-            return
-
-        channel = self.bot.get_channel(payload.channel_id)
-        if not channel:
-            return
-
-        try:
-            message = await channel.fetch_message(payload.message_id)
-        except Exception:
-            return
-
-        if not message.content:
-            return
-
-        # Procura o utilizador de forma assíncrona (garante que encontra mesmo fora da cache)
-        try:
-            user = await self.bot.fetch_user(payload.user_id)
-        except Exception:
-            user = self.bot.get_user(payload.user_id)
-
-        if not user or user.bot:
-            return
-
-        # REMOVE a reação do utilizador para a contagem voltar ao normal (1) e o botão ficar limpo
-        try:
-            await message.remove_reaction(payload.emoji, user)
-        except Exception:
-            pass
-
-        texto_para_traduzir = message.content
-        target_lang = "pt"
-
-        cache_key = (texto_para_traduzir, target_lang)
-        if cache_key in translation_cache:
-            translated = translation_cache[cache_key]
-        else:
-            try:
-                translated = await asyncio.to_thread(
-                    GoogleTranslator(source='auto', target=target_lang).translate,
-                    texto_para_traduzir
-                )
-                if translated:
-                    translation_cache[cache_key] = translated
-            except Exception as e:
-                print(f"[TRADUTOR] Erro na tradução: {e}")
-                return
-
-        if not translated:
-            return
-
-        # Envia a tradução por Mensagem Privada
-        embed = discord.Embed(
-            title="🌐 Tradução Omertà",
-            description=translated,
-            color=discord.Color.blue(),
-            timestamp=message.created_at
-        )
-        embed.set_author(
-            name=message.author.display_name,
-            icon_url=message.author.display_avatar.url if message.author.display_avatar else None
-        )
-        embed.set_footer(text="Cosa Nostra System • Tradução Privada")
-
-        try:
-            await user.send(embed=embed)
-        except discord.Forbidden:
-            try:
-                await channel.send(f"{user.mention} ⚠️ Abre as tuas DMs/Mensagens Privadas para receber a tradução!", delete_after=8)
-            except Exception:
-                pass
+            print(f"[TRADUÇÃO] Erro ao adicionar botão à mensagem: {e}")
 
 
 async def setup(bot: commands.Bot):
