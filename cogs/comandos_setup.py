@@ -1,7 +1,7 @@
 import discord
 from discord.ext import commands
 from config import FAMILIAS, LIMITE_SOLDIERS
-from utils.logs import enviar_log_mafia  # <-- nova importação
+from utils.logs import enviar_log_mafia
 from bot import bot
 
 class ComandosSetup(commands.Cog):
@@ -108,10 +108,12 @@ class ComandosSetup(commands.Cog):
                 continue
             capos = [m.mention for m in cargo_fam.members if cargo_capo and cargo_capo in m.roles]
             capo_str = capos[0] if capos else "*Sem Capo*"
-            qtd_soldados = sum(1 for m in cargo_fam.members if cargo_soldier and cargo_soldier in m.roles)
+            soldados = [m.mention for m in cargo_fam.members if cargo_soldier and cargo_soldier in m.roles]
+            qtd_soldados = len(soldados)
+            soldados_str = ", ".join(soldados) if soldados else "*Nenhum soldado*"
             embed.add_field(
                 name=f"🍷 {nome_familia}",
-                value=f"**Capo:** {capo_str}\n**Soldados:** `{qtd_soldados}/{LIMITE_SOLDIERS}`",
+                value=f"**Capo:** {capo_str}\n**Soldados ({qtd_soldados}/{LIMITE_SOLDIERS}):** {soldados_str}",
                 inline=False
             )
         await ctx.send(embed=embed)
@@ -136,7 +138,7 @@ class ComandosSetup(commands.Cog):
                                 descricao = descricao[:4090] + "\n... (mensagem truncada)"
 
                             embed = discord.Embed(
-                                title="🚨 COMUNICADO OFICIAL",
+                                title="🚨 COMUNICADO OFICIAL DA CÚPULA",
                                 description=descricao,
                                 color=discord.Color.dark_red()
                             )
