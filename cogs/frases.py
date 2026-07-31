@@ -1,9 +1,10 @@
-import asyncio
+import os
 import random
+import asyncio
 import discord
 from discord.ext import commands
-from deep_translator import GoogleTranslator
-from cogs.traducao import TranslateView  # view persistente do botão 🌍
+from cogs.traducao import TranslateView
+from groq import AsyncGroq
 
 FRASES_EN = [
     "Speak, consigliere. The herb is cured and business is booming.",
@@ -76,47 +77,89 @@ class FraseManager:
         return self._fila.pop()
 
 
-# Instância global para manter o ciclo das frases ao longo da execução
 frase_manager = FraseManager(FRASES_EN)
 
 
 class Frases(commands.Cog):
-    """Responde com frases engraçadas (máfia + cannabis) quando o Aquiles é mencionado."""
+    """Aquiles responde com IA (Groq) quando mencionado."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self.groq_client = None
+        self.groq_model = "llama3-8b-8192"
+        self._init_groq()
 
-    @commands.Cog.listener()
-   async def on_message(self, message: discord.Message):
-    if message.author.bot:
-        return
+    def _init_groq(self):
+        api_key = os.getenv("GROQ_API_KEY")
+        if api_key:
+            self.groq_client = AsyncGroq(api_key=api_key)
+            print("[FRASES] Cliente Groq inicializado.")
+        else:
+            print("[FRASES] ⚠️ GROQ_API_KEY não definida. A usar apenas frases fixas.")
 
-    if self.bot.user in message.mentions:
-        # 1. Apaga a mensagem original
-        try:
-            await message.delete()
-        except discord.Forbidden:
-            pass  # se não tiver permissão, continua
+    async def _gerar_resposta_ia(self, frase_base: str, mensagem_usuario: str) -> str:
+        if not self.groq_client:
+            return None
 
-        # 2. Republica a mensagem do utilizador (como o traducao.py faria)
-        conteudo_formatado = f"<@{message.author.id}>: {message.content}"
-        files = [await a.to_file() for a in message.attachments]
-        await message.channel.send(
-            content=conteudo_formatado,
-            files=files,
-            view=TranslateView(),
-            allowed_mentions=discord.AllowedMentions(users=False)
+        system_prompt = (
+            "You are Aquiles, the Don of a cannabis-themed mafia family. "
+            "You are witty, wise, and speak like a classic mafia godfather but with a cannabis twist. "
+            "Keep your answers short (2-3 sentences), in English, and always cool and respectful. "
+            "You can refer to cannabis as 'herb', 'medicine', 'green gold', etc. "
+            "Never break character."
+        )
+        user_prompt = (
+            f"Context: Someone just said: \"{mensagem_usuario}\"\n"
+            f"Base idea to use (but you can adapt): \"{frase_base}\"\n\n"
+            "Generate a natural, short reply as Aquiles the Don."
         )
 
-        # 3. Agora o Aquiles responde
-        frase_base = frase_manager.next()
-        resposta = await self._gerar_resposta_ia(frase_base, message.content)
-        if not resposta:
-            resposta = frase_base
+        try:
+            response = await self.groq_client.chat.completions.create(
+                model=self.groq_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                max_tokens=150,
+                temperature=0.8,
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            print(f"[FRASES] Erro na API Groq: {e}")
+            return None
 
-        async with message.channel.typing():
-            await asyncio.sleep(1)   # pequeno delay para parecer natural
-            await message.channel.send(f"💬 {resposta}", view=TranslateView())
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        if message.author.bot:
+            return
+
+        if self.bot.user in message.mentions:
+            # 1. Apaga a mensagem original
+            try:
+                await message.delete()
+            except discord.Forbidden:
+                pass
+
+            # 2. Republica a mensagem do utilizador, como o traducao.py faria
+            conteudo_formatado = f"<@{message.author.id}>: {message.content}"
+            files = [await a.to_file() for a in message.attachments]
+            await message.channel.send(
+                content=conteudo_formatado,
+                files=files,
+                view=TranslateView(),
+                allowed_mentions=discord.AllowedMentions(users=False)
+            )
+
+            # 3. Aquiles responde
+            frase_base = frase_manager.next()
+            resposta = await self._gerar_resposta_ia(frase_base, message.content)
+            if not resposta:
+                resposta = frase_base
+
+            async with message.channel.typing():
+                await asyncio.sleep(1)
+                await message.channel.send(f"💬 {resposta}", view=TranslateView())
 
     @commands.command(name="frase")
     async def frase(self, ctx):
