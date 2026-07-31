@@ -1,7 +1,7 @@
 import discord
 from discord.ext import commands
 from config import FAMILIAS, LIMITE_SOLDIERS
-from cogs.logs import enviar_log_mafia
+from cogs.logs import enviar_log_mafia  # (não usado neste ficheiro, mas inofensivo)
 from bot import bot
 
 class ComandosSetup(commands.Cog):
@@ -130,17 +130,30 @@ class ComandosSetup(commands.Cog):
                     canal_warnings = discord.utils.get(categoria.text_channels, name="🚨-warnings")
                     if canal_warnings:
                         try:
+                            # --- Processa o texto (trunca se necessário) ---
+                            descricao = message.content
+                            if len(descricao) > 4090:
+                                descricao = descricao[:4090] + "\n... (mensagem truncada)"
+
                             embed = discord.Embed(
                                 title="🚨 COMUNICADO OFICIAL DA CÚPULA",
-                                description=message.content,
+                                description=descricao,
                                 color=discord.Color.dark_red()
                             )
                             embed.set_author(
                                 name=message.author.display_name,
                                 icon_url=message.author.display_avatar.url if message.author.display_avatar else None
                             )
+
+                            # --- Processa anexos ---
                             if message.attachments:
-                                embed.set_image(url=message.attachments[0].url)
+                                links = "\n".join(f"[{a.filename}]({a.url})" for a in message.attachments)
+                                embed.add_field(name="📎 Anexos", value=links, inline=False)
+                                # Se o primeiro anexo for uma imagem, usa como imagem do embed
+                                primeiro = message.attachments[0]
+                                if primeiro.content_type and primeiro.content_type.startswith("image/"):
+                                    embed.set_image(url=primeiro.url)
+
                             await canal_warnings.send(embed=embed)
                         except Exception as e:
                             print(f"Erro ao propagar aviso para {nome_familia}: {e}")
@@ -148,7 +161,6 @@ class ComandosSetup(commands.Cog):
                 await message.add_reaction("✅")
             except discord.Forbidden:
                 pass
-            # Não processamos mais nada se for o canal de comunicados
             return
 
 
