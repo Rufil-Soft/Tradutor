@@ -50,7 +50,7 @@ class CapoRegistryView(discord.ui.View):
         super().__init__(timeout=None)
 
     # ------ NOVO BOTÃO DE TRADUÇÃO ------
-    @discord.ui.button(label="Translate Oath", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="translate_capo_oath", row=0)
+    @discord.ui.button(label="Translate", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="translate_capo_oath", row=0)
     async def translate_oath(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         user_locale = str(interaction.locale).split("-")[0] or "pt"
@@ -198,7 +198,7 @@ class SoldierEnlistView(discord.ui.View):
         super().__init__(timeout=None)
 
     # ------ NOVO BOTÃO DE TRADUÇÃO ------
-    @discord.ui.button(label="Translate Oath", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="translate_soldier_oath", row=0)
+    @discord.ui.button(label="Translate", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="translate_soldier_oath", row=0)
     async def translate_oath(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         user_locale = str(interaction.locale).split("-")[0] or "pt"
