@@ -140,31 +140,76 @@ class VotacaoView(discord.ui.View):
             await interaction.response.send_message(msg.format(self.opcoes[opcao_idx]), ephemeral=True)
 
 
+# ========== MODAL ==========
+class VotacaoModal(discord.ui.Modal, title="Nova Votação da Cúpula"):
+    pergunta = discord.ui.TextInput(
+        label="Pergunta",
+        placeholder="Ex.: Devemos declarar guerra?",
+        style=discord.TextStyle.paragraph,
+        required=True,
+        max_length=256
+    )
+    opcoes = discord.ui.TextInput(
+        label="Opções (separadas por vírgula)",
+        placeholder="Ex.: Sim, Não, Abstenção",
+        style=discord.TextStyle.paragraph,
+        required=True,
+        max_length=512
+    )
+    duracao = discord.ui.TextInput(
+        label="Duração (minutos)",
+        placeholder="Deixe em branco para 10 min",
+        style=discord.TextStyle.short,
+        required=False,
+        default="10"
+    )
+
+    def __init__(self, cog: "Votacoes"):
+        super().__init__()
+        self.cog = cog
+
+    async def on_submit(self, interaction: discord.Interaction):
+        # Processa os campos
+        pergunta = self.pergunta.value.strip()
+        opcoes_str = self.opcoes.value.strip()
+        duracao_str = self.duracao.value.strip() or "10"
+
+        # Validações básicas
+        lista_opcoes = [op.strip() for op in opcoes_str.split(",") if op.strip()]
+        if len(lista_opcoes) < 2:
+            await interaction.response.send_message("⚠️ Precisas de pelo menos 2 opções.", ephemeral=True)
+            return
+
+        try:
+            duracao = int(duracao_str)
+            if duracao < 1:
+                raise ValueError
+        except ValueError:
+            await interaction.response.send_message("⚠️ Duração inválida. Insere um número inteiro positivo.", ephemeral=True)
+            return
+
+        # Chama o método de criação da votação
+        await self.cog.criar_votacao_modal(interaction, pergunta, lista_opcoes, duracao)
+
+
 class Votacoes(commands.Cog):
     """Sistema de votações da Cúpula com propagação e tradução."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="votacao", description="Convoca uma votação oficial da Cúpula")
+    @app_commands.command(name="votacao", description="Abrir formulário para criar uma votação")
     @app_commands.default_permissions(administrator=True)
-    async def criar_votacao(self, interaction: discord.Interaction, pergunta: str, opcoes: str, duracao: int = 10):
-        await interaction.response.defer(ephemeral=True)
+    async def abrir_modal_votacao(self, interaction: discord.Interaction):
+        modal = VotacaoModal(self)
+        await interaction.response.send_modal(modal)
 
+    async def criar_votacao_modal(self, interaction: discord.Interaction, pergunta: str, opcoes: list, duracao: int):
+        """Lógica de criação da votação, agora chamada a partir do modal."""
         criador_locale = str(interaction.locale).split("-")[0] or "pt"
-        lista_opcoes = [op.strip() for op in opcoes.split(",") if op.strip()]
-
-        if len(lista_opcoes) < 2:
-            await interaction.followup.send(await translate("⚠️ Need at least 2 options.", criador_locale), ephemeral=True)
-            return
-        if duracao < 1:
-            await interaction.followup.send(await translate("⚠️ Minimum duration is 1 minute.", criador_locale), ephemeral=True)
-            return
-
-        poll_id = len(poll_data) + 1
         guild = interaction.guild
 
-        # Membros elegíveis (baseado nos cargos da config)
+        # Determina elegíveis
         elegiveis_ids = set()
         for role_name in CARGOS_ELEGIVEIS:
             role = discord.utils.get(guild.roles, name=role_name)
@@ -172,9 +217,10 @@ class Votacoes(commands.Cog):
                 elegiveis_ids.update(m.id for m in role.members)
         total_elegiveis = len(elegiveis_ids)
 
+        poll_id = len(poll_data) + 1
         poll_data[poll_id] = {
             "pergunta": pergunta,
-            "opcoes": lista_opcoes,
+            "opcoes": opcoes,
             "duracao": duracao,
             "votos": {},
             "mensagens": [],
@@ -185,11 +231,11 @@ class Votacoes(commands.Cog):
             "lang": criador_locale
         }
 
-        # Embed inicial traduzido
+        # Embed inicial
         embed_inicial = await build_embed_async(
             pergunta=pergunta,
-            opcoes=lista_opcoes,
-            contagem={i: 0 for i in range(len(lista_opcoes))},
+            opcoes=opcoes,
+            contagem={i: 0 for i in range(len(opcoes))},
             total_votos=0,
             duracao=duracao,
             final=False,
@@ -197,12 +243,12 @@ class Votacoes(commands.Cog):
             lang=criador_locale
         )
 
-        # Mensagem original (canal de comando)
-        view_original = VotacaoView(poll_id, lista_opcoes, lang=criador_locale)
+        # Mensagem original no canal onde o modal foi invocado
+        view_original = VotacaoView(poll_id, opcoes, lang=criador_locale)
         msg_original = await interaction.channel.send(embed=embed_inicial, view=view_original)
         poll_data[poll_id]["mensagens"].append((interaction.channel_id, msg_original.id))
 
-        # Propagação para 🗳️-votações das famílias
+        # Propagação para famílias
         for familia_key, nome_familia in FAMILIAS.items():
             nome_cat = f"🍷 {nome_familia.upper()}"
             categoria = discord.utils.get(guild.categories, name=nome_cat)
@@ -210,7 +256,7 @@ class Votacoes(commands.Cog):
                 canal_votacoes = discord.utils.get(categoria.text_channels, name="🗳️-votações")
                 if canal_votacoes:
                     try:
-                        view_fam = VotacaoView(poll_id, lista_opcoes, lang=criador_locale)
+                        view_fam = VotacaoView(poll_id, opcoes, lang=criador_locale)
                         msg_fam = await canal_votacoes.send(embed=embed_inicial, view=view_fam)
                         poll_data[poll_id]["mensagens"].append((canal_votacoes.id, msg_fam.id))
                     except Exception as e:
@@ -218,12 +264,12 @@ class Votacoes(commands.Cog):
 
         # Confirmação ao criador
         confirm_msg = await translate("✅ Poll #{} started.\n📢 Propagated to {} families.\n⏳ Ends in {} min(s).", criador_locale)
-        await interaction.followup.send(
+        await interaction.response.send_message(
             confirm_msg.format(poll_id, len(poll_data[poll_id]["mensagens"]) - 1, duracao),
             ephemeral=True
         )
 
-        # Agendar fim da votação
+        # Agenda fim
         asyncio.create_task(self.finalizar_votacao(poll_id, duracao * 60))
 
     async def finalizar_votacao(self, poll_id: int, delay: int):
