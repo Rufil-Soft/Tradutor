@@ -136,7 +136,7 @@ class ComandosSetup(commands.Cog):
                                 descricao = descricao[:4090] + "\n... (mensagem truncada)"
 
                             embed = discord.Embed(
-                                title="🚨 COMUNICADO OFICIAL DA CÚPULA",
+                                title="🚨 COMUNICADO OFICIAL",
                                 description=descricao,
                                 color=discord.Color.dark_red()
                             )
