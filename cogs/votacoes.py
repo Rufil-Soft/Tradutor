@@ -30,58 +30,76 @@ NUM_EMOJIS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", 
 async def build_embed_async(pergunta: str, opcoes: list, contagem: dict,
                             total_votos: int, duracao: float, final: bool,
                             elegiveis: int, lang: str) -> discord.Embed:
-    """Embed profissional e mais legível."""
+    """Embed moderno e minimalista para votações."""
 
-    titulo = await translate("🏛️ COUNCIL // FINAL RESULT" if final else "📡 COUNCIL // LIVE VOTE", lang)
-    cor = discord.Color.from_rgb(0, 240, 255) if final else discord.Color.gold()
-    status = await translate("CLOSED" if final else "ACTIVE", lang)
+    if final:
+        titulo = await translate("🏛️ Council · Final Result", lang)
+        cor = discord.Color.from_rgb(0, 200, 255)  # ciano elegante
+        status = await translate("Closed", lang)
+    else:
+        titulo = await translate("📡 Council · Vote Now", lang)
+        cor = discord.Color.from_rgb(255, 200, 0)  # ouro suave
+        status = await translate("Active", lang)
 
-    # Cabeçalho com pergunta e duração usando formatação simples, sem yaml
     embed = discord.Embed(
         title=titulo,
+        description=f"**{await translate('Question', lang)}:** {pergunta}",
         color=cor,
         timestamp=discord.utils.utcnow()
     )
-    embed.add_field(name="❓ " + await translate("Question", lang), value=f"**{pergunta}**", inline=False)
-    embed.add_field(name="⏳ " + await translate("Duration", lang), value=f"{duracao} h", inline=True)
-    embed.add_field(name="📌 " + await translate("Status", lang), value=f"**{status}**", inline=True)
 
-    # Vencedor (final)
+    # Duração e estado numa só linha compacta
+    embed.add_field(
+        name="⏳ " + await translate("Duration", lang),
+        value=f"`{duracao} h`",
+        inline=True
+    )
+    embed.add_field(
+        name="📌 " + await translate("Status", lang),
+        value=f"**{status}**",
+        inline=True
+    )
+
+    # Se final, mostra vencedor e distribuição
     if final and total_votos > 0:
         vencedor_idx = max(contagem, key=contagem.get)
         vencedor_txt = opcoes[vencedor_idx]
-        campo = await translate("🏆 DECISION", lang)
+        vencedor_label = await translate("🏆 Decision", lang)
         embed.add_field(
-            name=campo,
+            name=vencedor_label,
             value=f"**{vencedor_txt.upper()}** ({contagem[vencedor_idx]} {await translate('votes', lang)})",
             inline=False
         )
+
+        # Distribuição de votos simplificada
+        linhas = []
+        for idx, opcao in enumerate(opcoes):
+            v = contagem.get(idx, 0)
+            pct = (v / total_votos * 100) if total_votos else 0
+            linhas.append(f"**{opcao}:** `{pct:.0f}%` ({v}v)")
+        embed.add_field(
+            name="📊 " + await translate("Results", lang),
+            value="\n".join(linhas),
+            inline=False
+        )
     elif final and total_votos == 0:
-        campo = await translate("⚠️ NO QUORUM", lang)
-        embed.add_field(name=campo, value="No votes registered.", inline=False)
+        embed.add_field(
+            name="⚠️ " + await translate("No quorum", lang),
+            value="Nenhum voto registado.",
+            inline=False
+        )
 
-    # Distribuição de votos
-    dist_label = await translate("📊 VOTE DISTRIBUTION", lang)
-    linhas = []
-    for idx, opcao in enumerate(opcoes):
-        v = contagem.get(idx, 0)
-        pct = (v / total_votos * 100) if total_votos else 0
-        barra = "▓" * int(pct / 10) + "░" * (10 - int(pct / 10))
-        linhas.append(f"`{barra}` **{pct:.1f}%** — **{opcao}** `({v}v)`")
-    embed.add_field(name=dist_label, value="\n".join(linhas) if linhas else await translate("No votes yet.", lang), inline=False)
-
-    # Métricas de quórum
+    # Métricas de quórum (apenas se elegiveis > 0)
     if elegiveis > 0:
         taxa = (total_votos / elegiveis * 100) if elegiveis else 0
-        metricas_label = await translate("⚙️ QUORUM METRICS", lang)
         metricas = (
             f"🗳 {await translate('Votes', lang)}: **{total_votos}**\n"
             f"👥 {await translate('Eligible', lang)}: **{elegiveis}**\n"
             f"📈 {await translate('Turnout', lang)}: **{taxa:.1f}%**"
         )
-        embed.add_field(name=metricas_label, value=metricas, inline=False)
+        embed.add_field(name="⚙️ " + await translate("Quorum", lang), value=metricas, inline=False)
 
-    embed.set_footer(text="Omertà • Council System")
+    embed.set_footer(text="Omertà · Council System")
     return embed
 
 
