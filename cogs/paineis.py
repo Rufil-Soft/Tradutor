@@ -21,7 +21,7 @@ class RanksView(discord.ui.View):
             "🎩 **1. THE DON (The Boss)**\n"
             "The top of the pyramid. The Don commands the destiny of all Families, arbitrates territorial disputes, and maintains peace or declares war.\n\n"
             "🍷 **2. CAPOREGIME / CAPO (The Regime Leader)**\n"
-            "The commander of each Family (Corleone, Gambino, Genovese, Lucchese, Bonanno).\n"
+            "The commander of each Family (Corleone, Gambino, Genovese, Lucchese, Bonanno, Colombo).\n"
             "• Only 1 Capo per Family.\n"
             "• Leads their own private HQ and commands up to 20 Soldiers.\n"
             "• Responsible for discipline and territory strategy.\n\n"
@@ -111,10 +111,9 @@ class CapoRegistryView(discord.ui.View):
             if not categoria:
                 categoria = await guild.create_category(nome_cat, overwrites=overwrites_base)
             
-            # Canal Anúncios (renomeado para 📜-announcements)
+            # Canal Anúncios (📜-announcements)
             canal_anuncios = discord.utils.get(categoria.text_channels, name="📜-announcements")
             if not canal_anuncios:
-                # Procura canal antigo para renomear
                 canal_antigo = discord.utils.get(categoria.text_channels, name="📜-capo-announcements")
                 if canal_antigo:
                     await canal_antigo.edit(name="📜-announcements")
@@ -198,6 +197,10 @@ class CapoRegistryView(discord.ui.View):
     async def capo_bonanno(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.handle_capo_claim(interaction, "bonanno")
 
+    @discord.ui.button(label="Colombo", style=discord.ButtonStyle.primary, emoji="🍷", custom_id="capo_colombo", row=3)
+    async def capo_colombo(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.handle_capo_claim(interaction, "colombo")
+
 
 class SoldierEnlistView(discord.ui.View):
     def __init__(self):
@@ -227,7 +230,6 @@ class SoldierEnlistView(discord.ui.View):
 
     @discord.ui.button(label="🗡️ Enlist", style=discord.ButtonStyle.primary, custom_id="soldier_enlist_main", row=1)
     async def enlist_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Verifica se o utilizador tem o cargo Soldier
         cargo_soldier = discord.utils.get(interaction.guild.roles, name="Soldier")
         if cargo_soldier not in interaction.user.roles:
             await interaction.response.send_message("❌ Precisas da patente **Soldier** para te alistar.", ephemeral=True)
@@ -251,20 +253,26 @@ class SoldierEnlistView(discord.ui.View):
             await interaction.response.send_message("⚠️ Nenhuma família disponível para alistamento neste momento.", ephemeral=True)
             return
 
-        class FamilyChoiceView(discord.ui.View):
+        # View dinâmica com um botão por família
+        class FamilyButtonsView(discord.ui.View):
             def __init__(self):
                 super().__init__(timeout=60)
+                for familia_key, nome_familia in opcoes_validas:
+                    botao = discord.ui.Button(
+                        label=nome_familia,
+                        style=discord.ButtonStyle.primary,
+                        emoji="🗡️",
+                        custom_id=f"soldier_join_{familia_key}"
+                    )
+                    botao.callback = self.make_callback(familia_key)
+                    self.add_item(botao)
 
-            @discord.ui.select(
-                placeholder="Escolhe uma família...",
-                options=[discord.SelectOption(label=nome, value=key) for key, nome in opcoes_validas],
-                custom_id="family_select"
-            )
-            async def select_family(self, select_interaction: discord.Interaction, select: discord.ui.Select):
-                familia_key = select.values[0]
-                await Paineis.handle_soldier_join_static(select_interaction, familia_key, guild)
+            def make_callback(self, familia_key: str):
+                async def callback(button_interaction: discord.Interaction):
+                    await Paineis.handle_soldier_join_static(button_interaction, familia_key, guild)
+                return callback
 
-        view = FamilyChoiceView()
+        view = FamilyButtonsView()
         await interaction.response.send_message("🗡️ Escolhe a família a que te queres juntar:", view=view, ephemeral=True)
 
 
@@ -274,12 +282,10 @@ class Paineis(commands.Cog):
 
     @staticmethod
     async def handle_soldier_join_static(interaction: discord.Interaction, familia_key: str, guild: discord.Guild):
-        """Processa a entrada de um Soldier na família, acessível de views efémeras."""
         member = interaction.user
         cargo_soldier = discord.utils.get(guild.roles, name="Soldier")
-        cargo_capo = discord.utils.get(guild.roles, name="Capo")
         nome_familia = FAMILIAS[familia_key]
-        cargo_fam = discord.utils.get(guild.roles, nome=nome_familia)
+        cargo_fam = discord.utils.get(guild.roles, name=nome_familia)
 
         if not cargo_fam:
             await interaction.response.send_message("Erro: cargo da família não encontrado.", ephemeral=True)
@@ -299,7 +305,6 @@ class Paineis(commands.Cog):
         await member.add_roles(cargo_fam)
         await interaction.response.send_message(f"🗡️ Foste alistado na **{nome_familia}**!", ephemeral=True)
 
-        # Log
         await enviar_log_mafia(guild, "🗡️ NOVO SOLDADO ALISTADO", f"{member.mention} juntou-se à **{nome_familia}**!", discord.Color.blue())
 
     @commands.command(name="setup_ranks")
@@ -324,7 +329,7 @@ class Paineis(commands.Cog):
         )
         embed.add_field(
             name="🍷 2. CAPOREGIME / CAPO (The Regime Leader)",
-            value="The commander of each Family (Corleone, Gambino, Genovese, Lucchese, Bonanno). \n"
+            value="The commander of each Family (Corleone, Gambino, Genovese, Lucchese, Bonanno, Colombo). \n"
                   "• Only 1 Capo per Family.\n"
                   "• Leads their own private HQ and commands up to 20 Soldiers.\n"
                   "• Responsible for discipline and territory strategy.",
