@@ -3,6 +3,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from deep_translator import GoogleTranslator
+from datetime import timedelta
 from config import FAMILIAS, CARGOS_ELEGIVEIS
 from utils.logs import enviar_log_mafia
 
@@ -28,18 +29,16 @@ NUM_EMOJIS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", 
 
 
 async def build_embed_async(pergunta: str, opcoes: list, contagem: dict,
-                            total_votos: int, duracao: float, final: bool,
-                            elegiveis: int, lang: str) -> discord.Embed:
-    """Embed moderno e minimalista para votações."""
+                            total_votos: int, end_time, final: bool,
+                            lang: str) -> discord.Embed:
+    """Embed moderno, limpo, apenas com a data de término e (no final) resultados."""
 
     if final:
         titulo = await translate("🏛️ Council · Final Result", lang)
-        cor = discord.Color.from_rgb(0, 200, 255)  # ciano elegante
-        status = await translate("Closed", lang)
+        cor = discord.Color.from_rgb(0, 200, 255)
     else:
         titulo = await translate("📡 Council · Vote Now", lang)
-        cor = discord.Color.from_rgb(255, 200, 0)  # ouro suave
-        status = await translate("Active", lang)
+        cor = discord.Color.from_rgb(255, 200, 0)
 
     embed = discord.Embed(
         title=titulo,
@@ -48,19 +47,22 @@ async def build_embed_async(pergunta: str, opcoes: list, contagem: dict,
         timestamp=discord.utils.utcnow()
     )
 
-    # Duração e estado numa só linha compacta
-    embed.add_field(
-        name="⏳ " + await translate("Duration", lang),
-        value=f"`{duracao} h`",
-        inline=True
-    )
-    embed.add_field(
-        name="📌 " + await translate("Status", lang),
-        value=f"**{status}**",
-        inline=True
-    )
+    # Data/hora de término (sempre visível)
+    unix = int(end_time.timestamp())
+    if not final:
+        embed.add_field(
+            name="🗓️ " + await translate("Ends", lang),
+            value=f"<t:{unix}:F>  (<t:{unix}:R>)",
+            inline=False
+        )
+    else:
+        embed.add_field(
+            name="🗓️ " + await translate("Ended", lang),
+            value=f"<t:{unix}:F>",
+            inline=False
+        )
 
-    # Se final, mostra vencedor e distribuição
+    # Resultados apenas se final e com votos
     if final and total_votos > 0:
         vencedor_idx = max(contagem, key=contagem.get)
         vencedor_txt = opcoes[vencedor_idx]
@@ -71,7 +73,6 @@ async def build_embed_async(pergunta: str, opcoes: list, contagem: dict,
             inline=False
         )
 
-        # Distribuição de votos simplificada
         linhas = []
         for idx, opcao in enumerate(opcoes):
             v = contagem.get(idx, 0)
@@ -89,16 +90,6 @@ async def build_embed_async(pergunta: str, opcoes: list, contagem: dict,
             inline=False
         )
 
-    # Métricas de quórum (apenas se elegiveis > 0)
-    if elegiveis > 0:
-        taxa = (total_votos / elegiveis * 100) if elegiveis else 0
-        metricas = (
-            f"🗳 {await translate('Votes', lang)}: **{total_votos}**\n"
-            f"👥 {await translate('Eligible', lang)}: **{elegiveis}**\n"
-            f"📈 {await translate('Turnout', lang)}: **{taxa:.1f}%**"
-        )
-        embed.add_field(name="⚙️ " + await translate("Quorum", lang), value=metricas, inline=False)
-
     embed.set_footer(text="Omertà · Council System")
     return embed
 
@@ -111,7 +102,6 @@ class VotacaoView(discord.ui.View):
         self.criador_id = criador_id
         self.lang = lang
 
-        # Botões das opções
         for i, opcao in enumerate(opcoes):
             emoji = NUM_EMOJIS[i] if i < len(NUM_EMOJIS) else "🔹"
             botao = discord.ui.Button(
@@ -124,13 +114,12 @@ class VotacaoView(discord.ui.View):
             botao.callback = self.voto_callback
             self.add_item(botao)
 
-        # Botão Cancelar (linha separada, no fim)
         cancel_btn = discord.ui.Button(
             label="Cancel",
             style=discord.ButtonStyle.danger,
             emoji="🛑",
             custom_id=f"cancel_poll_{poll_id}",
-            row=2  # linha abaixo dos botões de opção, no máximo 5 linhas
+            row=2
         )
         cancel_btn.callback = self.cancel_callback
         self.add_item(cancel_btn)
@@ -168,19 +157,16 @@ class VotacaoView(discord.ui.View):
             await interaction.response.send_message(msg.format(self.opcoes[opcao_idx]), ephemeral=True)
 
     async def cancel_callback(self, interaction: discord.Interaction):
-        """Cancela a votação: só o criador ou administrador pode cancelar."""
         user = interaction.user
         dados = poll_data.get(self.poll_id)
         if not dados:
             await interaction.response.send_message("⛔ This poll is no longer active.", ephemeral=True)
             return
 
-        # Verifica permissão
         if user.id != self.criador_id and not user.guild_permissions.administrator:
             await interaction.response.send_message("🛑 Only the creator or an administrator can cancel this poll.", ephemeral=True)
             return
 
-        # Apagar todas as mensagens registadas
         for channel_id, message_id in dados.get("mensagens", []):
             try:
                 canal = interaction.client.get_channel(channel_id)
@@ -190,7 +176,6 @@ class VotacaoView(discord.ui.View):
             except Exception as e:
                 print(f"Erro ao apagar mensagem {message_id} no cancelamento: {e}")
 
-        # Log da ação
         guild = interaction.guild
         await enviar_log_mafia(
             guild,
@@ -199,9 +184,7 @@ class VotacaoView(discord.ui.View):
             discord.Color.red()
         )
 
-        # Remover dados da memória
         poll_data.pop(self.poll_id, None)
-
         await interaction.response.send_message("🛑 Votação cancelada com sucesso. Todas as mensagens foram removidas.", ephemeral=True)
 
 
@@ -269,7 +252,6 @@ class Votacoes(commands.Cog):
         criador_locale = str(interaction.locale).split("-")[0] or "pt"
         guild = interaction.guild
 
-        # Membros elegíveis
         elegiveis_ids = set()
         for role_name in CARGOS_ELEGIVEIS:
             role = discord.utils.get(guild.roles, name=role_name)
@@ -277,11 +259,14 @@ class Votacoes(commands.Cog):
                 elegiveis_ids.update(m.id for m in role.members)
         total_elegiveis = len(elegiveis_ids)
 
+        end_time = discord.utils.utcnow() + timedelta(hours=duracao)
+
         poll_id = len(poll_data) + 1
         poll_data[poll_id] = {
             "pergunta": pergunta,
             "opcoes": opcoes,
-            "duracao": duracao,  # horas
+            "duracao": duracao,
+            "end_time": end_time,
             "votos": {},
             "mensagens": [],
             "elegiveis_ids": elegiveis_ids,
@@ -296,18 +281,15 @@ class Votacoes(commands.Cog):
             opcoes=opcoes,
             contagem={i: 0 for i in range(len(opcoes))},
             total_votos=0,
-            duracao=duracao,
+            end_time=end_time,
             final=False,
-            elegiveis=total_elegiveis,
             lang=criador_locale
         )
 
-        # View com criador_id para o botão cancelar
         view_original = VotacaoView(poll_id, opcoes, criador_id=interaction.user.id, lang=criador_locale)
         msg_original = await interaction.channel.send(embed=embed_inicial, view=view_original)
         poll_data[poll_id]["mensagens"].append((interaction.channel_id, msg_original.id))
 
-        # Propagação para as famílias
         for familia_key, nome_familia in FAMILIAS.items():
             nome_cat = f"🍷 {nome_familia.upper()}"
             categoria = discord.utils.get(guild.categories, name=nome_cat)
@@ -327,7 +309,6 @@ class Votacoes(commands.Cog):
             ephemeral=True
         )
 
-        # Agendar fim (duracao em horas -> segundos)
         asyncio.create_task(self.finalizar_votacao(poll_id, duracao * 3600))
 
     async def finalizar_votacao(self, poll_id: int, delay: float):
@@ -348,9 +329,8 @@ class Votacoes(commands.Cog):
             opcoes=dados["opcoes"],
             contagem=contagem,
             total_votos=total_votos,
-            duracao=dados["duracao"],
+            end_time=dados["end_time"],
             final=True,
-            elegiveis=dados.get("total_elegiveis", 0),
             lang=lang
         )
 
