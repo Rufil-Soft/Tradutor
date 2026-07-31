@@ -87,14 +87,36 @@ class Frases(commands.Cog):
         self.bot = bot
 
     @commands.Cog.listener()
-    async def on_message(self, message: discord.Message):
-        if message.author.bot:
-            return
+   async def on_message(self, message: discord.Message):
+    if message.author.bot:
+        return
 
-        if self.bot.user in message.mentions:
-           
-            frase_original = frase_manager.next()
-            await message.channel.send(f"💬 {frase_original}", view=TranslateView())
+    if self.bot.user in message.mentions:
+        # 1. Apaga a mensagem original
+        try:
+            await message.delete()
+        except discord.Forbidden:
+            pass  # se não tiver permissão, continua
+
+        # 2. Republica a mensagem do utilizador (como o traducao.py faria)
+        conteudo_formatado = f"<@{message.author.id}>: {message.content}"
+        files = [await a.to_file() for a in message.attachments]
+        await message.channel.send(
+            content=conteudo_formatado,
+            files=files,
+            view=TranslateView(),
+            allowed_mentions=discord.AllowedMentions(users=False)
+        )
+
+        # 3. Agora o Aquiles responde
+        frase_base = frase_manager.next()
+        resposta = await self._gerar_resposta_ia(frase_base, message.content)
+        if not resposta:
+            resposta = frase_base
+
+        async with message.channel.typing():
+            await asyncio.sleep(1)   # pequeno delay para parecer natural
+            await message.channel.send(f"💬 {resposta}", view=TranslateView())
 
     @commands.command(name="frase")
     async def frase(self, ctx):
