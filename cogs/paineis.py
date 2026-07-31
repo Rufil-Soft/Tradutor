@@ -319,23 +319,26 @@ class Paineis(commands.Cog):
         await interaction.response.send_message(f"🗡️ Foste alistado na **{nome_familia}**!", ephemeral=True)
         await enviar_log_mafia(guild, "🗡️ NOVO SOLDADO ALISTADO", f"{member.mention} juntou-se à **{nome_familia}**!", discord.Color.blue())
 
-    # ------- Listener unificado de actualização de membro -------
+    # ------- Listener unificado de actualização de membro (LOGS MELHORADOS) -------
     @commands.Cog.listener()
     async def on_member_update(self, before: discord.Member, after: discord.Member):
-        # 1) Se um Capo perdeu o cargo, remove-o das famílias
         cargo_capo = discord.utils.get(after.guild.roles, name="Capo")
+        cargo_soldier = discord.utils.get(after.guild.roles, name="Soldier")
+
+        # ------------------------------------------------------------
+        # 1) Capo perdeu o cargo → remove-o de todas as famílias
+        # ------------------------------------------------------------
         if cargo_capo:
             was_capo = cargo_capo in before.roles
             is_capo = cargo_capo in after.roles
             if was_capo and not is_capo:
-                print(f"[PAINEIS] {after.display_name} perdeu o cargo de Capo. Removendo famílias...")
                 for nome_familia in FAMILIAS.values():
                     cargo_fam = discord.utils.get(after.guild.roles, name=nome_familia)
                     if cargo_fam and cargo_fam in after.roles:
                         try:
                             await after.remove_roles(cargo_fam)
                         except discord.Forbidden:
-                            print(f"[PAINEIS] Sem permissão para remover {nome_familia} de {after.display_name}.")
+                            pass
                 await enviar_log_mafia(
                     after.guild,
                     "🔻 CAPO DEGRADADO",
@@ -343,23 +346,89 @@ class Paineis(commands.Cog):
                     discord.Color.orange()
                 )
 
-        # 2) Impedir que um Soldier acumule roles de várias famílias
-        cargo_soldier = discord.utils.get(after.guild.roles, name="Soldier")
+        # ------------------------------------------------------------
+        # 2) Soldier perdeu o cargo → remove-o da família atual
+        # ------------------------------------------------------------
+        if cargo_soldier:
+            was_soldier = cargo_soldier in before.roles
+            is_soldier = cargo_soldier in after.roles
+            if was_soldier and not is_soldier:
+                for nome_familia in FAMILIAS.values():
+                    cargo_fam = discord.utils.get(after.guild.roles, name=nome_familia)
+                    if cargo_fam and cargo_fam in after.roles:
+                        try:
+                            await after.remove_roles(cargo_fam)
+                        except discord.Forbidden:
+                            pass
+                await enviar_log_mafia(
+                    after.guild,
+                    "🗡️ SOLDADO PERDEU PATENTE",
+                    f"{after.mention} deixou de ser Soldier e foi removido da sua família.",
+                    discord.Color.orange()
+                )
+
+        # ------------------------------------------------------------
+        # 3) Alterações manuais de roles de família (ganhou ou perdeu)
+        # ------------------------------------------------------------
+        roles_familia_antes = set(r.name for r in before.roles if r.name in FAMILIAS.values())
+        roles_familia_depois = set(r.name for r in after.roles if r.name in FAMILIAS.values())
+
+        ganhou = roles_familia_depois - roles_familia_antes
+        perdeu = roles_familia_antes - roles_familia_depois
+
+        for nome_fam in ganhou:
+            await enviar_log_mafia(
+                after.guild,
+                "📥 NOVA FAMÍLIA ATRIBUÍDA",
+                f"{after.mention} recebeu a role **{nome_fam}**.",
+                discord.Color.green()
+            )
+        for nome_fam in perdeu:
+            await enviar_log_mafia(
+                after.guild,
+                "📤 FAMÍLIA REMOVIDA",
+                f"{after.mention} perdeu a role **{nome_fam}**.",
+                discord.Color.red()
+            )
+
+        # ------------------------------------------------------------
+        # 4) Impedir Soldier de acumular várias famílias (mantém a 1ª)
+        # ------------------------------------------------------------
         if cargo_soldier and cargo_soldier in after.roles:
             roles_familia = [r for r in after.roles if r.name in FAMILIAS.values()]
             if len(roles_familia) > 1:
-                # Mantém a primeira, remove as restantes
                 for role in roles_familia[1:]:
                     try:
                         await after.remove_roles(role)
                     except discord.Forbidden:
-                        print(f"[PAINEIS] Sem permissão para remover {role.name} de {after.display_name}.")
+                        pass
                 await enviar_log_mafia(
                     after.guild,
                     "🛡️ FAMÍLIA DUPLICADA BLOQUEADA",
                     f"{after.mention} tentou acumular múltiplas famílias. Foram removidas as excedentes.",
                     discord.Color.orange()
                 )
+
+    # ------- Listener de saída do servidor -------
+    @commands.Cog.listener()
+    async def on_member_remove(self, member: discord.Member):
+        cargo_capo = discord.utils.get(member.guild.roles, name="Capo")
+        cargo_soldier = discord.utils.get(member.guild.roles, name="Soldier")
+
+        # Verifica se o membro que saiu era Capo ou Soldier
+        era_capo = cargo_capo in member.roles if cargo_capo else False
+        era_soldier = cargo_soldier in member.roles if cargo_soldier else False
+
+        if era_capo or era_soldier:
+            familias = [r.name for r in member.roles if r.name in FAMILIAS.values()]
+            tipo = "Capo" if era_capo else "Soldier"
+            detalhes = f"Pertencia a: {', '.join(familias)}" if familias else "Não tinha família."
+            await enviar_log_mafia(
+                member.guild,
+                f"🚪 {tipo.upper()} SAIU DO SERVIDOR",
+                f"{member.mention} ({member.display_name}) saiu do servidor.\n{detalhes}",
+                discord.Color.dark_gray()
+            )
 
     # ------- Comandos de setup -------
     @commands.command(name="setup_ranks")
