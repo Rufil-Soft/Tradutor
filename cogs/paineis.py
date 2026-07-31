@@ -49,7 +49,6 @@ class CapoRegistryView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    # ------ NOVO BOTÃO DE TRADUÇÃO ------
     @discord.ui.button(label="Translate", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="translate_capo_oath", row=0)
     async def translate_oath(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
@@ -112,16 +111,22 @@ class CapoRegistryView(discord.ui.View):
             if not categoria:
                 categoria = await guild.create_category(nome_cat, overwrites=overwrites_base)
             
-           
-           # Canal Anúncios
-            canal_anuncios = discord.utils.get(categoria.text_channels, name="📜-capo-announcements")
+            # Canal Anúncios (renomeado para 📜-announcements)
+            canal_anuncios = discord.utils.get(categoria.text_channels, name="📜-announcements")
+            if not canal_anuncios:
+                # Procura canal antigo para renomear
+                canal_antigo = discord.utils.get(categoria.text_channels, name="📜-capo-announcements")
+                if canal_antigo:
+                    await canal_antigo.edit(name="📜-announcements")
+                    canal_anuncios = canal_antigo
+
             overwrites_announcements = {
                 guild.default_role: discord.PermissionOverwrite(read_messages=False),
                 cargo_familia: discord.PermissionOverwrite(read_messages=True, send_messages=False),
                 cargo_capo: discord.PermissionOverwrite(read_messages=True, send_messages=True)
             }
             if not canal_anuncios:
-                await guild.create_text_channel("📜-capo-announcements", category=categoria, overwrites=overwrites_announcements, topic=f"Official announcements for {nome_familia}.")
+                await guild.create_text_channel("📜-announcements", category=categoria, overwrites=overwrites_announcements, topic=f"Official announcements for {nome_familia}.")
             else:
                 await canal_anuncios.edit(overwrites=overwrites_announcements)
             
@@ -198,7 +203,6 @@ class SoldierEnlistView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    # ------ NOVO BOTÃO DE TRADUÇÃO ------
     @discord.ui.button(label="Translate", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="translate_soldier_oath", row=0)
     async def translate_oath(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
@@ -221,66 +225,82 @@ class SoldierEnlistView(discord.ui.View):
         except Exception as e:
             await interaction.followup.send("❌ Falha na tradução. Tenta novamente.", ephemeral=True)
 
-    async def handle_soldier_join(self, interaction: discord.Interaction, familia_key: str):
+    @discord.ui.button(label="🗡️ Enlist", style=discord.ButtonStyle.primary, custom_id="soldier_enlist_main", row=1)
+    async def enlist_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Verifica se o utilizador tem o cargo Soldier
+        cargo_soldier = discord.utils.get(interaction.guild.roles, name="Soldier")
+        if cargo_soldier not in interaction.user.roles:
+            await interaction.response.send_message("❌ Precisas da patente **Soldier** para te alistar.", ephemeral=True)
+            return
+
         guild = interaction.guild
-        member = interaction.user
-        cargo_soldier = discord.utils.get(guild.roles, name="Soldier")
         cargo_capo = discord.utils.get(guild.roles, name="Capo")
+        opcoes_validas = []
 
-        if cargo_soldier not in member.roles:
-            await interaction.response.send_message("❌ Precisas de ter a patente **Soldier** para entrar num Regime!", ephemeral=True)
+        for familia_key, nome_familia in FAMILIAS.items():
+            cargo_fam = discord.utils.get(guild.roles, name=nome_familia)
+            if not cargo_fam:
+                continue
+            capos = [m for m in cargo_fam.members if cargo_capo in m.roles]
+            if capos:
+                qtd = sum(1 for m in cargo_fam.members if cargo_soldier in m.roles)
+                if qtd < LIMITE_SOLDIERS:
+                    opcoes_validas.append((familia_key, nome_familia))
+
+        if not opcoes_validas:
+            await interaction.response.send_message("⚠️ Nenhuma família disponível para alistamento neste momento.", ephemeral=True)
             return
 
-        nome_familia = FAMILIAS[familia_key]
-        cargo_familia = discord.utils.get(guild.roles, name=nome_familia)
-        
-        tem_capo = any(cargo_capo in m.roles for m in cargo_familia.members)
-        if not tem_capo:
-            await interaction.response.send_message(f"🚫 A **{nome_familia}** ainda não tem um Capo nomeado.", ephemeral=True)
-            return
+        class FamilyChoiceView(discord.ui.View):
+            def __init__(self):
+                super().__init__(timeout=60)
 
-        qtd_soldados = sum(1 for m in cargo_familia.members if cargo_soldier in m.roles)
-        if qtd_soldados >= LIMITE_SOLDIERS:
-            await interaction.response.send_message(f"⚠️ A **{nome_familia}** já está cheia ({LIMITE_SOLDIERS}/{LIMITE_SOLDIERS} Soldados)!", ephemeral=True)
-            return
+            @discord.ui.select(
+                placeholder="Escolhe uma família...",
+                options=[discord.SelectOption(label=nome, value=key) for key, nome in opcoes_validas],
+                custom_id="family_select"
+            )
+            async def select_family(self, select_interaction: discord.Interaction, select: discord.ui.Select):
+                familia_key = select.values[0]
+                await Paineis.handle_soldier_join_static(select_interaction, familia_key, guild)
 
-        await interaction.response.defer(ephemeral=True)
-        try:
-            for f_nome in FAMILIAS.values():
-                c_antigo = discord.utils.get(guild.roles, name=f_nome)
-                if c_antigo in member.roles:
-                    await member.remove_roles(c_antigo)
-
-            await member.add_roles(cargo_familia)
-            await interaction.followup.send(f"🗡️ Bem-vindo à **{nome_familia}**! Cumpre o Pacto de Omertà e obedece ao teu Capo.", ephemeral=True)
-            await enviar_log_mafia(guild, "🗡️ NOVO SOLDADO ALISTADO", f"{member.mention} juntou-se à **{nome_familia}**!", discord.Color.blue())
-        except discord.Forbidden:
-            await interaction.followup.send("❌ O bot não tem permissão para alterar cargos.", ephemeral=True)
-
-    @discord.ui.button(label="Corleone", style=discord.ButtonStyle.success, emoji="🗡️", custom_id="soldier_corleone", row=1)
-    async def soldier_corleone(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.handle_soldier_join(interaction, "corleone")
-
-    @discord.ui.button(label="Gambino", style=discord.ButtonStyle.success, emoji="🗡️", custom_id="soldier_gambino", row=1)
-    async def soldier_gambino(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.handle_soldier_join(interaction, "gambino")
-
-    @discord.ui.button(label="Genovese", style=discord.ButtonStyle.success, emoji="🗡️", custom_id="soldier_genovese", row=1)
-    async def soldier_genovese(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.handle_soldier_join(interaction, "genovese")
-
-    @discord.ui.button(label="Lucchese", style=discord.ButtonStyle.success, emoji="🗡️", custom_id="soldier_lucchese", row=2)
-    async def soldier_lucchese(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.handle_soldier_join(interaction, "lucchese")
-
-    @discord.ui.button(label="Bonanno", style=discord.ButtonStyle.success, emoji="🗡️", custom_id="soldier_bonanno", row=2)
-    async def soldier_bonanno(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.handle_soldier_join(interaction, "bonanno")
+        view = FamilyChoiceView()
+        await interaction.response.send_message("🗡️ Escolhe a família a que te queres juntar:", view=view, ephemeral=True)
 
 
 class Paineis(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+
+    @staticmethod
+    async def handle_soldier_join_static(interaction: discord.Interaction, familia_key: str, guild: discord.Guild):
+        """Processa a entrada de um Soldier na família, acessível de views efémeras."""
+        member = interaction.user
+        cargo_soldier = discord.utils.get(guild.roles, name="Soldier")
+        cargo_capo = discord.utils.get(guild.roles, name="Capo")
+        nome_familia = FAMILIAS[familia_key]
+        cargo_fam = discord.utils.get(guild.roles, nome=nome_familia)
+
+        if not cargo_fam:
+            await interaction.response.send_message("Erro: cargo da família não encontrado.", ephemeral=True)
+            return
+
+        qtd = sum(1 for m in cargo_fam.members if cargo_soldier in m.roles)
+        if qtd >= LIMITE_SOLDIERS:
+            await interaction.response.send_message(f"⚠️ A **{nome_familia}** já está cheia!", ephemeral=True)
+            return
+
+        # Remove outras famílias
+        for f_nome in FAMILIAS.values():
+            c_antigo = discord.utils.get(guild.roles, name=f_nome)
+            if c_antigo in member.roles:
+                await member.remove_roles(c_antigo)
+
+        await member.add_roles(cargo_fam)
+        await interaction.response.send_message(f"🗡️ Foste alistado na **{nome_familia}**!", ephemeral=True)
+
+        # Log
+        await enviar_log_mafia(guild, "🗡️ NOVO SOLDADO ALISTADO", f"{member.mention} juntou-se à **{nome_familia}**!", discord.Color.blue())
 
     @commands.command(name="setup_ranks")
     @commands.has_permissions(administrator=True)
