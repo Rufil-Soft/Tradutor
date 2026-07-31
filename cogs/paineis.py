@@ -3,7 +3,7 @@ import discord
 from discord.ext import commands
 from deep_translator import GoogleTranslator
 from config import FAMILIAS, LIMITE_SOLDIERS
-from cogs.logs import enviar_log_mafia
+from utils.logs import enviar_log_mafia  # <-- nova importação
 from bot import bot
 
 
@@ -92,13 +92,15 @@ class CapoRegistryView(discord.ui.View):
             
             # Canal Anúncios
             canal_anuncios = discord.utils.get(categoria.text_channels, name="📜-capo-announcements")
+            overwrites_announcements = {
+                guild.default_role: discord.PermissionOverwrite(read_messages=False),
+                cargo_familia: discord.PermissionOverwrite(read_messages=True, send_messages=False),
+                cargo_capo: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+            }
             if not canal_anuncios:
-                overwrites_announcements = {
-                    guild.default_role: discord.PermissionOverwrite(read_messages=False),
-                    cargo_familia: discord.PermissionOverwrite(read_messages=True, send_messages=False),
-                    cargo_capo: discord.PermissionOverwrite(read_messages=True, send_messages=True)
-                }
                 await guild.create_text_channel("📜-capo-announcements", category=categoria, overwrites=overwrites_announcements, topic=f"Official announcements for {nome_familia}.")
+            else:
+                await canal_anuncios.edit(overwrites=overwrites_announcements)
             
             # Canal Warnings
             canal_warnings = discord.utils.get(categoria.text_channels, name="🚨-warnings")
@@ -110,32 +112,36 @@ class CapoRegistryView(discord.ui.View):
             if not canal_warnings:
                 await guild.create_text_channel("🚨-warnings", category=categoria, overwrites=overwrites_warnings, topic=f"Canal de warnings vindos da Cúpula exclusivo para o Capo da {nome_familia}.")
             else:
-            # Redefine todas as permissões do canal, removendo o Capo antigo
-            overwrites = {
-                guild.default_role: discord.PermissionOverwrite(read_messages=False),
-                cargo_familia: discord.PermissionOverwrite(read_messages=False),
-                member: discord.PermissionOverwrite(read_messages=True, send_messages=False, read_message_history=True)
-            }
-            await canal_warnings.edit(overwrites=overwrites)
+                await canal_warnings.edit(overwrites=overwrites_warnings)
             
             # Canal Votações
             canal_votacoes = discord.utils.get(categoria.text_channels, name="🗳️-votações")
+            overwrites_votacoes = {
+                guild.default_role: discord.PermissionOverwrite(read_messages=False),
+                cargo_familia: discord.PermissionOverwrite(read_messages=True, send_messages=True, read_message_history=True)
+            }
             if not canal_votacoes:
-                overwrites_votacoes = {
-                    guild.default_role: discord.PermissionOverwrite(read_messages=False),
-                    cargo_familia: discord.PermissionOverwrite(read_messages=True, send_messages=True, read_message_history=True)
-                }
                 await guild.create_text_channel("🗳️-votações", category=categoria, overwrites=overwrites_votacoes, topic=f"Canal de votações oficiais para a {nome_familia}.")
+            else:
+                await canal_votacoes.edit(overwrites=overwrites_votacoes)
             
             # Chat Geral
             canal_chat = discord.utils.get(categoria.text_channels, name="💬-general-chat")
+            overwrites_chat = {
+                guild.default_role: discord.PermissionOverwrite(read_messages=False),
+                cargo_familia: discord.PermissionOverwrite(read_messages=True, send_messages=True, read_message_history=True)
+            }
             if not canal_chat:
-                await guild.create_text_channel("💬-general-chat", category=categoria, topic=f"Secret HQ text chat for {nome_familia}.")
+                await guild.create_text_channel("💬-general-chat", category=categoria, overwrites=overwrites_chat, topic=f"Secret HQ text chat for {nome_familia}.")
+            else:
+                await canal_chat.edit(overwrites=overwrites_chat)
             
             # Sala de Voz
             canal_voz = discord.utils.get(categoria.voice_channels, name="📢-meeting-room")
             if not canal_voz:
-                await guild.create_voice_channel("📢-meeting-room", category=categoria)
+                await guild.create_voice_channel("📢-meeting-room", category=categoria, overwrites=overwrites_base)
+            else:
+                await canal_voz.edit(overwrites=overwrites_base)
             
             await interaction.followup.send(
                 f"🍷 **Honra e Lealdade!** Assumiste o comando da **{nome_familia}**!\n📂 QG configurado com sucesso!", ephemeral=True
@@ -244,7 +250,6 @@ class Paineis(commands.Cog):
             color=discord.Color.dark_red(),
             timestamp=discord.utils.utcnow()
         )
-        # Espaçador visual extra (campo vazio)
         embed.add_field(name="\u200b", value="\u200b", inline=False)
         embed.add_field(
             name="🎩 1. THE DON (The Boss)",
@@ -280,7 +285,6 @@ class Paineis(commands.Cog):
             inline=False
         )
         embed.set_footer(text="Cosa Nostra System • Order is Your Survival")
-        # Anexa a view com o botão de tradução
         await ctx.send(embed=embed, view=RanksView())
 
     @commands.command(name="setup_capo")
