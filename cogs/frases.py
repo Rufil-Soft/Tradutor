@@ -61,7 +61,6 @@ FRASES_EN = [
 
 
 class FraseManager:
-    """Garante que as frases não se repitam até que todas tenham sido usadas."""
     def __init__(self, frases):
         self._frases = frases.copy()
         self._fila = []
@@ -81,12 +80,10 @@ frase_manager = FraseManager(FRASES_EN)
 
 
 class Frases(commands.Cog):
-    """Aquiles responde com IA (Groq) quando mencionado."""
-
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.groq_client = None
-        self.groq_model = "llama3-8b-8192"
+        self.groq_model = "llama-3.1-8b-instant"  # modelo atualizado
         self._init_groq()
 
     def _init_groq(self):
@@ -135,13 +132,11 @@ class Frases(commands.Cog):
             return
 
         if self.bot.user in message.mentions:
-            # 1. Apaga a mensagem original
             try:
                 await message.delete()
             except discord.Forbidden:
                 pass
 
-            # 2. Republica a mensagem do utilizador
             conteudo_formatado = f"<@{message.author.id}>: {message.content}"
             files = [await a.to_file() for a in message.attachments]
             await message.channel.send(
@@ -151,7 +146,6 @@ class Frases(commands.Cog):
                 allowed_mentions=discord.AllowedMentions(users=False)
             )
 
-            # 3. Resposta do Aquiles
             frase_base = frase_manager.next()
             resposta = await self._gerar_resposta_ia(frase_base, message.content)
             if not resposta:
