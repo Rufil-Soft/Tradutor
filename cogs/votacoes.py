@@ -6,11 +6,10 @@ from deep_translator import GoogleTranslator
 from config import FAMILIAS, CARGOS_ELEGIVEIS
 from utils.logs import enviar_log_mafia
 
-# Cache de traduções (texto, idioma) -> texto traduzido
+# Cache de traduções
 _t_cache = {}
 
 async def translate(key: str, target: str) -> str:
-    """Traduz 'key' para 'target' (código de 2 letras). Cache interno."""
     if target == "pt":
         return key
     cache_key = (key, target)
@@ -21,44 +20,45 @@ async def translate(key: str, target: str) -> str:
         _t_cache[cache_key] = res
         return res
     except Exception:
-        return key  # fallback
+        return key
 
 
-# Estrutura de dados das votações ativas
 poll_data = {}
 NUM_EMOJIS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
 
 
 async def build_embed_async(pergunta: str, opcoes: list, contagem: dict,
-                            total_votos: int, duracao: int, final: bool,
+                            total_votos: int, duracao: float, final: bool,
                             elegiveis: int, lang: str) -> discord.Embed:
-    """Cria o embed de votação com design profissional e tradução."""
+    """Embed profissional e mais legível."""
 
-    # Textos traduzíveis
-    titulo = await translate("🏛️ SYSTEM COUNCIL // FINAL RESULT" if final else "📡 SYSTEM COUNCIL // LIVE VOTE", lang)
+    titulo = await translate("🏛️ COUNCIL // FINAL RESULT" if final else "📡 COUNCIL // LIVE VOTE", lang)
     cor = discord.Color.from_rgb(0, 240, 255) if final else discord.Color.gold()
     status = await translate("CLOSED" if final else "ACTIVE", lang)
-    pergunta_label = await translate("QUESTION:", lang)
-    duracao_label = await translate("DURATION:", lang)
-    status_label = await translate("STATUS:", lang)
 
-    descricao = f"```yaml\n{pergunta_label} {pergunta}\n{duracao_label} {duracao} min\n{status_label} {status}\n```"
+    # Cabeçalho com pergunta e duração usando formatação simples, sem yaml
+    embed = discord.Embed(
+        title=titulo,
+        color=cor,
+        timestamp=discord.utils.utcnow()
+    )
+    embed.add_field(name="❓ " + await translate("Question", lang), value=f"**{pergunta}**", inline=False)
+    embed.add_field(name="⏳ " + await translate("Duration", lang), value=f"{duracao} h", inline=True)
+    embed.add_field(name="📌 " + await translate("Status", lang), value=f"**{status}**", inline=True)
 
-    embed = discord.Embed(title=titulo, description=descricao, color=cor, timestamp=discord.utils.utcnow())
-
-    # Vencedor (se final e com votos)
+    # Vencedor (final)
     if final and total_votos > 0:
         vencedor_idx = max(contagem, key=contagem.get)
         vencedor_txt = opcoes[vencedor_idx]
-        campo_vencedor = await translate("🏆 WINNING DECISION", lang)
+        campo = await translate("🏆 DECISION", lang)
         embed.add_field(
-            name=campo_vencedor,
-            value=f"```fix\n{vencedor_txt.upper()} ({contagem[vencedor_idx]} {await translate('votes', lang)})\n```",
+            name=campo,
+            value=f"**{vencedor_txt.upper()}** ({contagem[vencedor_idx]} {await translate('votes', lang)})",
             inline=False
         )
     elif final and total_votos == 0:
-        campo_sem_quorum = await translate("⚠️ NO QUORUM", lang)
-        embed.add_field(name=campo_sem_quorum, value="```diff\n- Nenhum voto registado.\n```", inline=False)
+        campo = await translate("⚠️ NO QUORUM", lang)
+        embed.add_field(name=campo, value="No votes registered.", inline=False)
 
     # Distribuição de votos
     dist_label = await translate("📊 VOTE DISTRIBUTION", lang)
@@ -67,17 +67,18 @@ async def build_embed_async(pergunta: str, opcoes: list, contagem: dict,
         v = contagem.get(idx, 0)
         pct = (v / total_votos * 100) if total_votos else 0
         barra = "▓" * int(pct / 10) + "░" * (10 - int(pct / 10))
-        linhas.append(f"`{barra}` **{pct:.1f}%** ── **{opcao}** `({v}v)`")
+        linhas.append(f"`{barra}` **{pct:.1f}%** — **{opcao}** `({v}v)`")
     embed.add_field(name=dist_label, value="\n".join(linhas) if linhas else await translate("No votes yet.", lang), inline=False)
 
     # Métricas de quórum
     if elegiveis > 0:
         taxa = (total_votos / elegiveis * 100) if elegiveis else 0
         metricas_label = await translate("⚙️ QUORUM METRICS", lang)
-        reg_votes = await translate("Registered Votes", lang)
-        elig_members = await translate("Eligible Members", lang)
-        turnout = await translate("Turnout", lang)
-        metricas = f"```ini\n[{reg_votes}] : {total_votos}\n[{elig_members}] : {elegiveis}\n[{turnout}]   : {taxa:.1f}%\n```"
+        metricas = (
+            f"🗳 {await translate('Votes', lang)}: **{total_votos}**\n"
+            f"👥 {await translate('Eligible', lang)}: **{elegiveis}**\n"
+            f"📈 {await translate('Turnout', lang)}: **{taxa:.1f}%**"
+        )
         embed.add_field(name=metricas_label, value=metricas, inline=False)
 
     embed.set_footer(text="Omertà • Council System")
@@ -85,13 +86,14 @@ async def build_embed_async(pergunta: str, opcoes: list, contagem: dict,
 
 
 class VotacaoView(discord.ui.View):
-    """View persistente com um botão por opção."""
-    def __init__(self, poll_id: int, opcoes: list, lang: str = "pt"):
+    def __init__(self, poll_id: int, opcoes: list, criador_id: int, lang: str = "pt"):
         super().__init__(timeout=None)
         self.poll_id = poll_id
         self.opcoes = opcoes
-        self.lang = lang  # idioma base (para fallback, não afeta botões)
+        self.criador_id = criador_id
+        self.lang = lang
 
+        # Botões das opções
         for i, opcao in enumerate(opcoes):
             emoji = NUM_EMOJIS[i] if i < len(NUM_EMOJIS) else "🔹"
             botao = discord.ui.Button(
@@ -104,8 +106,18 @@ class VotacaoView(discord.ui.View):
             botao.callback = self.voto_callback
             self.add_item(botao)
 
+        # Botão Cancelar (linha separada, no fim)
+        cancel_btn = discord.ui.Button(
+            label="Cancel",
+            style=discord.ButtonStyle.danger,
+            emoji="🛑",
+            custom_id=f"cancel_poll_{poll_id}",
+            row=2  # linha abaixo dos botões de opção, no máximo 5 linhas
+        )
+        cancel_btn.callback = self.cancel_callback
+        self.add_item(cancel_btn)
+
     async def voto_callback(self, interaction: discord.Interaction):
-        """Processa o voto, com resposta no idioma do utilizador."""
         poll_id = self.poll_id
         user_id = interaction.user.id
         user_locale = str(interaction.locale).split("-")[0] or "pt"
@@ -115,11 +127,9 @@ class VotacaoView(discord.ui.View):
             await interaction.response.send_message(await translate("⛔ This poll has closed.", user_locale), ephemeral=True)
             return
 
-        # Extrair índice da opção
         custom_id = interaction.data["custom_id"]
         opcao_idx = int(custom_id.split("_")[-1])
 
-        # Elegibilidade
         if user_id not in dados.get("elegiveis_ids", set()):
             await interaction.response.send_message(await translate("🔒 You are not eligible to vote.", user_locale), ephemeral=True)
             return
@@ -139,8 +149,44 @@ class VotacaoView(discord.ui.View):
             msg = await translate("✅ Vote registered for {}. The Council thanks your loyalty.", user_locale)
             await interaction.response.send_message(msg.format(self.opcoes[opcao_idx]), ephemeral=True)
 
+    async def cancel_callback(self, interaction: discord.Interaction):
+        """Cancela a votação: só o criador ou administrador pode cancelar."""
+        user = interaction.user
+        dados = poll_data.get(self.poll_id)
+        if not dados:
+            await interaction.response.send_message("⛔ This poll is no longer active.", ephemeral=True)
+            return
 
-# ========== MODAL ==========
+        # Verifica permissão
+        if user.id != self.criador_id and not user.guild_permissions.administrator:
+            await interaction.response.send_message("🛑 Only the creator or an administrator can cancel this poll.", ephemeral=True)
+            return
+
+        # Apagar todas as mensagens registadas
+        for channel_id, message_id in dados.get("mensagens", []):
+            try:
+                canal = interaction.client.get_channel(channel_id)
+                if canal:
+                    msg = await canal.fetch_message(message_id)
+                    await msg.delete()
+            except Exception as e:
+                print(f"Erro ao apagar mensagem {message_id} no cancelamento: {e}")
+
+        # Log da ação
+        guild = interaction.guild
+        await enviar_log_mafia(
+            guild,
+            f"🛑 Votação #{self.poll_id} Cancelada",
+            f"Pergunta: **{dados['pergunta']}**\nCancelado por: {user.mention}",
+            discord.Color.red()
+        )
+
+        # Remover dados da memória
+        poll_data.pop(self.poll_id, None)
+
+        await interaction.response.send_message("🛑 Votação cancelada com sucesso. Todas as mensagens foram removidas.", ephemeral=True)
+
+
 class VotacaoModal(discord.ui.Modal, title="Nova Votação da Cúpula"):
     pergunta = discord.ui.TextInput(
         label="Pergunta",
@@ -157,11 +203,11 @@ class VotacaoModal(discord.ui.Modal, title="Nova Votação da Cúpula"):
         max_length=512
     )
     duracao = discord.ui.TextInput(
-        label="Duração (minutos)",
-        placeholder="Deixe em branco para 10 min",
+        label="Duração (horas)",
+        placeholder="Ex.: 1.5 para 1h30min. Padrão 1h",
         style=discord.TextStyle.short,
         required=False,
-        default="10"
+        default="1"
     )
 
     def __init__(self, cog: "Votacoes"):
@@ -169,31 +215,28 @@ class VotacaoModal(discord.ui.Modal, title="Nova Votação da Cúpula"):
         self.cog = cog
 
     async def on_submit(self, interaction: discord.Interaction):
-        # Processa os campos
         pergunta = self.pergunta.value.strip()
         opcoes_str = self.opcoes.value.strip()
-        duracao_str = self.duracao.value.strip() or "10"
+        duracao_str = self.duracao.value.strip() or "1"
 
-        # Validações básicas
         lista_opcoes = [op.strip() for op in opcoes_str.split(",") if op.strip()]
         if len(lista_opcoes) < 2:
             await interaction.response.send_message("⚠️ Precisas de pelo menos 2 opções.", ephemeral=True)
             return
 
         try:
-            duracao = int(duracao_str)
-            if duracao < 1:
+            duracao = float(duracao_str.replace(",", "."))
+            if duracao <= 0:
                 raise ValueError
         except ValueError:
-            await interaction.response.send_message("⚠️ Duração inválida. Insere um número inteiro positivo.", ephemeral=True)
+            await interaction.response.send_message("⚠️ Duração inválida. Insira um número positivo (ex.: 1.5).", ephemeral=True)
             return
 
-        # Chama o método de criação da votação
         await self.cog.criar_votacao_modal(interaction, pergunta, lista_opcoes, duracao)
 
 
 class Votacoes(commands.Cog):
-    """Sistema de votações da Cúpula com propagação e tradução."""
+    """Sistema de votações da Cúpula."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -204,12 +247,11 @@ class Votacoes(commands.Cog):
         modal = VotacaoModal(self)
         await interaction.response.send_modal(modal)
 
-    async def criar_votacao_modal(self, interaction: discord.Interaction, pergunta: str, opcoes: list, duracao: int):
-        """Lógica de criação da votação, agora chamada a partir do modal."""
+    async def criar_votacao_modal(self, interaction: discord.Interaction, pergunta: str, opcoes: list, duracao: float):
         criador_locale = str(interaction.locale).split("-")[0] or "pt"
         guild = interaction.guild
 
-        # Determina elegíveis
+        # Membros elegíveis
         elegiveis_ids = set()
         for role_name in CARGOS_ELEGIVEIS:
             role = discord.utils.get(guild.roles, name=role_name)
@@ -221,7 +263,7 @@ class Votacoes(commands.Cog):
         poll_data[poll_id] = {
             "pergunta": pergunta,
             "opcoes": opcoes,
-            "duracao": duracao,
+            "duracao": duracao,  # horas
             "votos": {},
             "mensagens": [],
             "elegiveis_ids": elegiveis_ids,
@@ -231,7 +273,6 @@ class Votacoes(commands.Cog):
             "lang": criador_locale
         }
 
-        # Embed inicial
         embed_inicial = await build_embed_async(
             pergunta=pergunta,
             opcoes=opcoes,
@@ -243,12 +284,12 @@ class Votacoes(commands.Cog):
             lang=criador_locale
         )
 
-        # Mensagem original no canal onde o modal foi invocado
-        view_original = VotacaoView(poll_id, opcoes, lang=criador_locale)
+        # View com criador_id para o botão cancelar
+        view_original = VotacaoView(poll_id, opcoes, criador_id=interaction.user.id, lang=criador_locale)
         msg_original = await interaction.channel.send(embed=embed_inicial, view=view_original)
         poll_data[poll_id]["mensagens"].append((interaction.channel_id, msg_original.id))
 
-        # Propagação para famílias
+        # Propagação para as famílias
         for familia_key, nome_familia in FAMILIAS.items():
             nome_cat = f"🍷 {nome_familia.upper()}"
             categoria = discord.utils.get(guild.categories, name=nome_cat)
@@ -256,29 +297,27 @@ class Votacoes(commands.Cog):
                 canal_votacoes = discord.utils.get(categoria.text_channels, name="🗳️-votações")
                 if canal_votacoes:
                     try:
-                        view_fam = VotacaoView(poll_id, opcoes, lang=criador_locale)
+                        view_fam = VotacaoView(poll_id, opcoes, criador_id=interaction.user.id, lang=criador_locale)
                         msg_fam = await canal_votacoes.send(embed=embed_inicial, view=view_fam)
                         poll_data[poll_id]["mensagens"].append((canal_votacoes.id, msg_fam.id))
                     except Exception as e:
                         print(f"Erro ao propagar para {nome_familia}: {e}")
 
-        # Confirmação ao criador
-        confirm_msg = await translate("✅ Poll #{} started.\n📢 Propagated to {} families.\n⏳ Ends in {} min(s).", criador_locale)
+        confirm_msg = await translate("✅ Poll #{} started.\n📢 Propagated to {} families.\n⏳ Ends in {} hour(s).", criador_locale)
         await interaction.response.send_message(
             confirm_msg.format(poll_id, len(poll_data[poll_id]["mensagens"]) - 1, duracao),
             ephemeral=True
         )
 
-        # Agenda fim
-        asyncio.create_task(self.finalizar_votacao(poll_id, duracao * 60))
+        # Agendar fim (duracao em horas -> segundos)
+        asyncio.create_task(self.finalizar_votacao(poll_id, duracao * 3600))
 
-    async def finalizar_votacao(self, poll_id: int, delay: int):
+    async def finalizar_votacao(self, poll_id: int, delay: float):
         await asyncio.sleep(delay)
         dados = poll_data.get(poll_id)
         if not dados:
             return
 
-        # Calcula contagem
         contagem = {i: 0 for i in range(len(dados["opcoes"]))}
         for v in dados["votos"].values():
             if v in contagem:
@@ -297,7 +336,6 @@ class Votacoes(commands.Cog):
             lang=lang
         )
 
-        # Substitui todas as mensagens
         for channel_id, message_id in dados["mensagens"]:
             try:
                 canal = self.bot.get_channel(channel_id)
@@ -307,7 +345,6 @@ class Votacoes(commands.Cog):
             except Exception as e:
                 print(f"Erro ao finalizar mensagem {message_id}: {e}")
 
-        # Regista no log
         guild = self.bot.get_guild(dados["guild_id"])
         if guild:
             await enviar_log_mafia(
