@@ -5,22 +5,20 @@ Bot de Discord dedicado à gestão de uma hierarquia mafiosa, com painéis inter
 ---
 
 ## 📦 Estrutura do projeto
-bot-mafia/
-├── main.py # Ponto de entrada (executa o bot e carrega os cogs)
-├── bot.py # Instância do bot (comandos, intents, prefixo)
-├── config.py # Constantes (famílias, limite de soldados, etc.)
-├── servidor_dummy.py # Servidor web para manter o Render acordado
-├── requirements.txt # Dependências do Python
-├── README.md # Este ficheiro
-└── cogs/ # Extensões modulares (funcionalidades)
-├── init.py # Torna a pasta um package Python
-├── logs.py # Função de logs da Máfia
-├── traducao.py # Sistema de tradução automática (botões por mensagem)
-├── votacoes.py # Criação de votações, agregação de resultados, polls temporárias
-├── paineis.py # Views e comandos para os painéis (Ranks, Capos, Soldiers)
-└── comandos_setup.py # Comandos de configuração e relatório
 
-text
+- **`main.py`** – Ponto de entrada (executa o bot e carrega os módulos)
+- **`bot.py`** – Instância do bot (comandos, intents, prefixo)
+- **`config.py`** – Constantes (famílias, limite de soldados, cargos elegíveis)
+- **`servidor_dummy.py`** – Servidor web para manter o Render acordado
+- **`requirements.txt`** – Dependências do Python
+- **`README.md`** – Este ficheiro
+- **`cogs/`** – Funcionalidades modulares
+  - **`__init__.py`** – Torna a pasta um package Python
+  - **`logs.py`** – Função de logs da Máfia
+  - **`traducao.py`** – Sistema de tradução automática (botões por mensagem)
+  - **`votacoes.py`** – Votações, agregação de resultados e polls temporárias
+  - **`paineis.py`** – Views e comandos para os painéis (Ranks, Capos, Soldiers)
+  - **`comandos_setup.py`** – Comandos de configuração e relatório
 
 ---
 
@@ -65,53 +63,3 @@ text
 - **`!setup_vota_message`** – Cria o canal central `🗳️ vote-command`.
 
 ---
-
-## 🚀 Como usar (localmente)
-
-1. **Clona o repositório**:
-   ```bash
-   git clone https://github.com/teu-usuario/bot-mafia.git
-   cd bot-mafia
-Instala as dependências:
-
-bash
-pip install -r requirements.txt
-Cria um ficheiro .env (ou define a variável de ambiente) com o token do bot:
-
-text
-DISCORD_TOKEN=o_teu_token_aqui
-Executa o bot:
-
-bash
-python main.py
-🏗️ Deploy no Render (recomendado)
-Cria um Web Service no Render e liga ao teu repositório.
-
-Configura:
-
-Build Command: pip install -r requirements.txt
-
-Start Command: python main.py
-
-Adiciona a variável de ambiente DISCORD_TOKEN com o token do bot.
-
-O bot inclui um servidor dummy para evitar que o Render adormeça (necessário no plano gratuito). Para máxima eficácia, configura também um UptimeRobot a pingar o URL do serviço a cada 5 minutos.
-
-📜 Dependências
-discord.py>=2.4.0
-
-deep-translator>=1.11.4
-
-aiohttp>=3.9.0
-
-👥 Contribuições
-Sente‑te à vontade para abrir issues ou pull requests.
-Honra e lealdade acima de tudo. 🍷
-
-📝 Licença
-Este projeto é distribuído sob a licença MIT.
-Omertà: a palavra é um contrato de sangue. O silêncio é a nossa parede.
-
-text
-
-Basta copiares este conteúdo para um ficheiro chamado `README.md` na raiz do teu repositório. Ele fornece uma visão completa e profissional do teu bot, ideal para quem quiser entender ou colaborar no projeto.
