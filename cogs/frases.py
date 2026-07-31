@@ -1,8 +1,9 @@
-import random
 import asyncio
+import random
 import discord
 from discord.ext import commands
 from deep_translator import GoogleTranslator
+from cogs.traducao import TranslateView  # view persistente do botão de tradução
 
 FRASES_EN = [
     "Speak, consigliere. The herb is cured and business is booming.",
@@ -57,22 +58,27 @@ FRASES_EN = [
     "Judgment day has come: we decide the best strain of the month."
 ]
 
-# Cache de traduções
-_t_cache = {}
 
-async def translate(key: str, target: str) -> str:
-    """Traduz 'key' para 'target' (código de 2 letras). Cache interno."""
-    if target == "pt":
-        return key  # mantém original se for português (ou podes optar por traduzir para PT também)
-    cache_key = (key, target)
-    if cache_key in _t_cache:
-        return _t_cache[cache_key]
-    try:
-        res = await asyncio.to_thread(GoogleTranslator(source='auto', target=target).translate, key)
-        _t_cache[cache_key] = res
-        return res
-    except Exception:
-        return key  # fallback
+class FraseManager:
+    """Garante que as frases não se repitam até que todas tenham sido usadas."""
+    def __init__(self, frases):
+        self._frases = frases.copy()
+        self._fila = []
+        self._refill()
+
+    def _refill(self):
+        self._fila = self._frases.copy()
+        random.shuffle(self._fila)
+
+    def next(self) -> str:
+        if not self._fila:
+            self._refill()
+        return self._fila.pop()
+
+
+# Instância global para manter o ciclo das frases ao longo da execução
+frase_manager = FraseManager(FRASES_EN)
+
 
 class Frases(commands.Cog):
     """Responde com frases engraçadas (máfia + cannabis) quando o Aquiles é mencionado."""
@@ -85,20 +91,19 @@ class Frases(commands.Cog):
         if message.author.bot:
             return
 
-        # Verifica se o bot foi mencionado diretamente
         if self.bot.user in message.mentions:
-            frase_original = random.choice(FRASES_EN)
-            user_locale = str(message.author.locale).split("-")[0] if hasattr(message.author, 'locale') else "pt"
-            frase_traduzida = await translate(frase_original, user_locale)
-            await message.channel.send(f"💬 {frase_traduzida}")
+            # Log de depuração (remove depois de testar)
+            print(f"[FRASES] Menção de {message.author} em #{message.channel} - conteúdo: {message.content[:100]}")
+
+            frase_original = frase_manager.next()
+            await message.channel.send(f"💬 {frase_original}", view=TranslateView())
 
     @commands.command(name="frase")
     async def frase(self, ctx):
-        """Solta uma frase aleatória do Aquiles, traduzida automaticamente."""
-        frase_original = random.choice(FRASES_EN)
-        user_locale = str(ctx.author.locale).split("-")[0] if hasattr(ctx.author, 'locale') else "pt"
-        frase_traduzida = await translate(frase_original, user_locale)
-        await ctx.send(f"🗣️ {frase_traduzida}")
+        """Solta uma frase aleatória do Aquiles, com botão de tradução."""
+        frase_original = frase_manager.next()
+        await ctx.send(f"🗣️ {frase_original}", view=TranslateView())
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Frases(bot))
