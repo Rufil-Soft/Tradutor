@@ -16,6 +16,13 @@ class ComandosSetup(commands.Cog):
             bot.tree.copy_global_to(guild=ctx.guild)
             synced = await bot.tree.sync(guild=ctx.guild)
             await ctx.send(f"✅ Sincronizados **{len(synced)}** comandos de barra neste servidor!")
+            # Log
+            await enviar_log_mafia(
+                ctx.guild,
+                "🔄 Comandos Sincronizados",
+                f"{ctx.author.mention} sincronizou os comandos de barra no servidor.",
+                discord.Color.blurple()
+            )
         except Exception as e:
             await ctx.send(f"❌ Erro ao sincronizar: {e}")
 
@@ -42,6 +49,13 @@ class ComandosSetup(commands.Cog):
             topic="Registo oficial de movimentações e lealdade das Famílias."
         )
         await ctx.send(f"✅ Canal de logs criado: {canal.mention}")
+        # Log
+        await enviar_log_mafia(
+            guild,
+            "📁 Canal de Logs Criado",
+            f"{ctx.author.mention} criou o canal {canal.mention}.",
+            discord.Color.green()
+        )
 
     @commands.command(name="setup_capos_message")
     @commands.has_permissions(administrator=True)
@@ -69,6 +83,13 @@ class ComandosSetup(commands.Cog):
             topic="Propagação de comunicados para 🚨-warnings das famílias."
         )
         await ctx.send(f"✅ Canal criado: {canal.mention}")
+        # Log
+        await enviar_log_mafia(
+            guild,
+            "📢 Canal de Comunicados Criado",
+            f"{ctx.author.mention} criou o canal {canal.mention}.",
+            discord.Color.green()
+        )
 
     @commands.command(name="setup_vota_message")
     @commands.has_permissions(administrator=True)
@@ -93,6 +114,13 @@ class ComandosSetup(commands.Cog):
             topic="Usa /votacao para criar votações globais."
         )
         await ctx.send(f"✅ Canal criado: {canal.mention}")
+        # Log
+        await enviar_log_mafia(
+            guild,
+            "🗳️ Canal de Votações Criado",
+            f"{ctx.author.mention} criou o canal {canal.mention}.",
+            discord.Color.green()
+        )
 
     @commands.command(name="status_familias")
     @commands.has_permissions(administrator=True)
