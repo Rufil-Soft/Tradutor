@@ -53,7 +53,7 @@ class TranslateView(discord.ui.View):
             return
 
         await interaction.followup.send(
-            f"{translated}",
+            f"🌍** ==> **{translated}",
             ephemeral=True
         )
 
@@ -64,20 +64,18 @@ class Traducao(commands.Cog):
         print("[TRADUÇÃO] Cog carregado com formato limpo de linha única.")
 
     @commands.Cog.listener()
-    @commands.Cog.listener()
-async def on_message(self, message: discord.Message):
-    if message.author.bot or not message.content:
-        return
-    if message.content.startswith(self.bot.command_prefix):
-        return
-    if message.channel.name == "🎯-capos-message":
-        return
-    if self.bot.user in message.mentions:    # <-- NOVO
-        return
+    async def on_message(self, message: discord.Message):
+        if message.author.bot or not message.content:
+            return
+        if message.content.startswith(self.bot.command_prefix):
+            return
+        if message.channel.name == "🎯-capos-message":
+            return
+        # Ignorar mensagens que mencionam o Aquiles (tratado pelo frases.py)
+        if self.bot.user in message.mentions:
+            return
 
         try:
-            # Usa a menção do utilizador. O Discord aplica automaticamente a cor da role 
-            # e o allowed_mentions garante que o utilizador não é notificado (sem pings).
             conteudo_formatado = f"<@{message.author.id}>: {message.content}"
 
             files = [await a.to_file() for a in message.attachments]
@@ -96,5 +94,5 @@ async def on_message(self, message: discord.Message):
 
 
 async def setup(bot: commands.Bot):
-    bot.add_view(TranslateView()) 
+    bot.add_view(TranslateView())
     await bot.add_cog(Traducao(bot))
