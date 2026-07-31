@@ -3,7 +3,7 @@ import discord
 from discord.ext import commands
 from deep_translator import GoogleTranslator
 from config import FAMILIAS, LIMITE_SOLDIERS
-from utils.logs import enviar_log_mafia  # <-- nova importação
+from utils.logs import enviar_log_mafia
 from bot import bot
 
 
@@ -48,6 +48,28 @@ class RanksView(discord.ui.View):
 class CapoRegistryView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
+
+    # ------ NOVO BOTÃO DE TRADUÇÃO ------
+    @discord.ui.button(label="Translate Oath", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="translate_capo_oath", row=0)
+    async def translate_oath(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        user_locale = str(interaction.locale).split("-")[0] or "pt"
+        texto = (
+            "# 🍷 THE CAPOREGIME OATH & CLAIM\n"
+            "*\"Liderar não é um privilégio, é uma responsabilidade de sangue.\"*\n\n"
+            "---\n\n"
+            "### 📜 THE OMERTA CODE FOR CAPOS\n"
+            "1. **Absolute Loyalty:** As tuas ordens vêm do Don e dos Capodecinas. A tua palavra é a lei para os teus 20 Soldados.\n"
+            "2. **Protection:** És a espada e o escudo dos teus homens. Se um cai, a Família responde.\n"
+            "3. **Silence:** O que é falado na administração da Família morre na tumba. Traidores não têm segunda oportunidade.\n\n"
+            "---\n"
+            "⚠️ **Reivindica a tua Família abaixo.** Ao clicar, assume a liderança e ativa o QG Privado da Família."
+        )
+        try:
+            translated = await asyncio.to_thread(GoogleTranslator(source='auto', target=user_locale).translate, texto)
+            await interaction.followup.send(translated, ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send("❌ Falha na tradução. Tenta novamente.", ephemeral=True)
 
     async def handle_capo_claim(self, interaction: discord.Interaction, familia_key: str):
         guild = interaction.guild
@@ -174,6 +196,29 @@ class CapoRegistryView(discord.ui.View):
 class SoldierEnlistView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
+
+    # ------ NOVO BOTÃO DE TRADUÇÃO ------
+    @discord.ui.button(label="Translate Oath", style=discord.ButtonStyle.secondary, emoji="🌐", custom_id="translate_soldier_oath", row=0)
+    async def translate_oath(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        user_locale = str(interaction.locale).split("-")[0] or "pt"
+        texto = (
+            "# 🗡️ SOLDIER ENLISTMENT & OMERTA\n"
+            "*\"Ajoelha-te como um homem livre, levanta-te como um Homem de Honra.\"*\n\n"
+            "---\n\n"
+            "### 📜 THE OMERTA CODE (Pacto de Sangue)\n"
+            "1. **Silence (Omertà):** Nunca fales com autoridades nem com Famílias rivais. A língua solta encomenda o teu próprio caixão.\n"
+            "2. **Chain of Command:** Tu **só respondes ao teu Capo**. Não pules a hierarquia.\n"
+            "3. **Family First:** A Família vem antes do teu sangue, dos teus amigos e da tua própria vida.\n\n"
+            "---\n"
+            "⚠️ **Junta-te a um Regime abaixo.**\n"
+            "*Nota: Apenas podes entrar em Famílias que **já tenham um Capo ativo**. Limite estrito de 20 Soldados por Família.*"
+        )
+        try:
+            translated = await asyncio.to_thread(GoogleTranslator(source='auto', target=user_locale).translate, texto)
+            await interaction.followup.send(translated, ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send("❌ Falha na tradução. Tenta novamente.", ephemeral=True)
 
     async def handle_soldier_join(self, interaction: discord.Interaction, familia_key: str):
         guild = interaction.guild
