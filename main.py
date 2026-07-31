@@ -44,9 +44,7 @@ async def on_ready():
             print(f"Comandos sincronizados para o servidor: {guild.name}")
     except Exception as e:
         print(f"Erro ao sincronizar comandos: {e}")
-
-    # Inicia o servidor dummy para o Render não adormecer
-    await start_dummy_server()
+   
     print("Servidor dummy iniciado.")
 
 async def main():
@@ -55,6 +53,7 @@ async def main():
     if not token:
         print("ERRO CRÍTICO: Variável de ambiente DISCORD_TOKEN não definida.")
         return
+    await start_dummy_server()    
     await bot.start(token)
 
 # Ponto de entrada
