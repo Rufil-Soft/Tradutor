@@ -64,13 +64,16 @@ class Traducao(commands.Cog):
         print("[TRADUÇÃO] Cog carregado com formato limpo de linha única.")
 
     @commands.Cog.listener()
-    async def on_message(self, message: discord.Message):
-        if message.author.bot or not message.content:
-            return
-        if message.content.startswith(self.bot.command_prefix):
-            return
-        if message.channel.name == "🎯-capos-message":
-            return
+    @commands.Cog.listener()
+async def on_message(self, message: discord.Message):
+    if message.author.bot or not message.content:
+        return
+    if message.content.startswith(self.bot.command_prefix):
+        return
+    if message.channel.name == "🎯-capos-message":
+        return
+    if self.bot.user in message.mentions:    # <-- NOVO
+        return
 
         try:
             # Usa a menção do utilizador. O Discord aplica automaticamente a cor da role 
