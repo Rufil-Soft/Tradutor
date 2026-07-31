@@ -122,29 +122,30 @@ class ComandosSetup(commands.Cog):
             discord.Color.green()
         )
 
-    @commands.command(name="status_familias")
-    @commands.has_permissions(administrator=True)
-    async def status_familias(self, ctx):
-        """Relatório de poder das famílias (Capo e soldados)."""
-        guild = ctx.guild
-        cargo_capo = discord.utils.get(guild.roles, name="Capo")
-        cargo_soldier = discord.utils.get(guild.roles, name="Soldier")
-        embed = discord.Embed(title="📊 RELATÓRIO DE PODER DAS FAMÍLIAS", color=discord.Color.dark_red())
-        for key, nome_familia in FAMILIAS.items():
-            cargo_fam = discord.utils.get(guild.roles, name=nome_familia)
-            if not cargo_fam:
-                continue
-            capos = [m.mention for m in cargo_fam.members if cargo_capo and cargo_capo in m.roles]
-            capo_str = capos[0] if capos else "*Sem Capo*"
-            soldados = [m.mention for m in cargo_fam.members if cargo_soldier and cargo_soldier in m.roles]
-            qtd_soldados = len(soldados)
-            soldados_str = ", ".join(soldados) if soldados else "*Nenhum soldado*"
-            embed.add_field(
-                name=f"🍷 {nome_familia}",
-                value=f"**Capo:** {capo_str}\n**Soldados ({qtd_soldados}/{LIMITE_SOLDIERS}):** {soldados_str}",
-                inline=False
-            )
-        await ctx.send(embed=embed)
+   @commands.command(name="status_familias")
+@commands.has_permissions(administrator=True)
+async def status_familias(self, ctx):
+    """Relatório de poder das famílias (Capo e soldados)."""
+    guild = ctx.guild
+    cargo_capo = discord.utils.get(guild.roles, name="Capo")
+    cargo_soldier = discord.utils.get(guild.roles, name="Soldier")
+    embed = discord.Embed(title="📊 RELATÓRIO DE PODER DAS FAMÍLIAS", color=discord.Color.dark_red())
+    for key, nome_familia in FAMILIAS.items():
+        cargo_fam = discord.utils.get(guild.roles, name=nome_familia)
+        if not cargo_fam:
+            continue
+        # Usar display_name em vez de mention para evitar problemas de renderização
+        capos = [m.display_name for m in cargo_fam.members if cargo_capo and cargo_capo in m.roles]
+        capo_str = capos[0] if capos else "*Sem Capo*"
+        soldados = [m.display_name for m in cargo_fam.members if cargo_soldier and cargo_soldier in m.roles]
+        qtd_soldados = len(soldados)
+        soldados_str = ", ".join(soldados) if soldados else "*Nenhum soldado*"
+        embed.add_field(
+            name=f"🍷 {nome_familia}",
+            value=f"**Capo:** {capo_str}\n**Soldados ({qtd_soldados}/{LIMITE_SOLDIERS}):** {soldados_str}",
+            inline=False
+        )
+    await ctx.send(embed=embed)
 
     # Listener on_message para propagação de comunicados
     @commands.Cog.listener()
