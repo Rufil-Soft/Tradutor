@@ -1,13 +1,13 @@
 import os
 import asyncio
 import traceback
-import discord  # <--- Adicionado
-from discord import app_commands  # <--- Adicionado (Corrige o erro NameError)
+import discord
+from discord import app_commands
 from bot import bot
 from servidor_dummy import start_dummy_server
 
 # Lista de cogs a carregar (nomes dos módulos dentro da pasta cogs)
-COGS = [           # carrega primeiro, outros dependem dele
+COGS = [
     "cogs.traducao",
     "cogs.votacoes",
     "cogs.paineis",
@@ -30,22 +30,17 @@ async def load_extensions():
 @app_commands.checks.has_permissions(administrator=True)
 async def reiniciar(interaction: discord.Interaction):
     await interaction.response.send_message("🔄 [SISTEMA OMERTA] Reiniciando subsistemas...", ephemeral=True)
-    await bot.close() # O Render deteta o encerramento e volta a ligar o bot em poucos segundos!
+    await bot.close()
 
 @bot.event
 async def on_ready():
     print(f"Bot ligado como {bot.user} (ID: {bot.user.id})")
-
-    # Sincroniza a árvore de comandos (comandos de barra e menus de contexto)
-    # para o servidor atual. Podes forçar uma sincronização global se preferires.
     try:
         for guild in bot.guilds:
             await bot.tree.sync(guild=guild)
             print(f"Comandos sincronizados para o servidor: {guild.name}")
     except Exception as e:
         print(f"Erro ao sincronizar comandos: {e}")
-   
-    print("Servidor dummy iniciado.")
 
 async def main():
     await load_extensions()
@@ -53,9 +48,8 @@ async def main():
     if not token:
         print("ERRO CRÍTICO: Variável de ambiente DISCORD_TOKEN não definida.")
         return
-    await start_dummy_server()    
+    await start_dummy_server()
     await bot.start(token)
 
-# Ponto de entrada
 if __name__ == "__main__":
     asyncio.run(main())
