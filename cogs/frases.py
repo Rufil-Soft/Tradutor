@@ -141,7 +141,7 @@ class Frases(commands.Cog):
             except discord.Forbidden:
                 pass
 
-            # 2. Republica a mensagem do utilizador, como o traducao.py faria
+            # 2. Republica a mensagem do utilizador
             conteudo_formatado = f"<@{message.author.id}>: {message.content}"
             files = [await a.to_file() for a in message.attachments]
             await message.channel.send(
@@ -151,7 +151,7 @@ class Frases(commands.Cog):
                 allowed_mentions=discord.AllowedMentions(users=False)
             )
 
-            # 3. Aquiles responde
+            # 3. Resposta do Aquiles
             frase_base = frase_manager.next()
             resposta = await self._gerar_resposta_ia(frase_base, message.content)
             if not resposta:
@@ -163,7 +163,6 @@ class Frases(commands.Cog):
 
     @commands.command(name="frase")
     async def frase(self, ctx):
-        """Solta uma frase aleatória do Aquiles, com botão de tradução."""
         frase_original = frase_manager.next()
         await ctx.send(f"🗣️ {frase_original}", view=TranslateView())
 
