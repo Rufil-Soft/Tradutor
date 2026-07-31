@@ -3,7 +3,7 @@ import random
 import discord
 from discord.ext import commands
 from deep_translator import GoogleTranslator
-from cogs.traducao import TranslateView  # view persistente do botão de tradução
+from cogs.traducao import TranslateView  # view persistente do botão 🌍
 
 FRASES_EN = [
     "Speak, consigliere. The herb is cured and business is booming.",
@@ -92,9 +92,7 @@ class Frases(commands.Cog):
             return
 
         if self.bot.user in message.mentions:
-            # Log de depuração (remove depois de testar)
-            print(f"[FRASES] Menção de {message.author} em #{message.channel} - conteúdo: {message.content[:100]}")
-
+           
             frase_original = frase_manager.next()
             await message.channel.send(f"💬 {frase_original}", view=TranslateView())
 
