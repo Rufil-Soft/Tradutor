@@ -110,7 +110,13 @@ class CapoRegistryView(discord.ui.View):
             if not canal_warnings:
                 await guild.create_text_channel("🚨-warnings", category=categoria, overwrites=overwrites_warnings, topic=f"Canal de warnings vindos da Cúpula exclusivo para o Capo da {nome_familia}.")
             else:
-                await canal_warnings.set_permissions(member, read_messages=True, send_messages=False, read_message_history=True)
+            # Redefine todas as permissões do canal, removendo o Capo antigo
+            overwrites = {
+                guild.default_role: discord.PermissionOverwrite(read_messages=False),
+                cargo_familia: discord.PermissionOverwrite(read_messages=False),
+                member: discord.PermissionOverwrite(read_messages=True, send_messages=False, read_message_history=True)
+            }
+            await canal_warnings.edit(overwrites=overwrites)
             
             # Canal Votações
             canal_votacoes = discord.utils.get(categoria.text_channels, name="🗳️-votações")
