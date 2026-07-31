@@ -319,6 +319,17 @@ class Votacoes(commands.Cog):
             ephemeral=True
         )
 
+        # ----- 📝 NOVO LOG DE CRIAÇÃO DA VOTAÇÃO -----
+        await enviar_log_mafia(
+            guild,
+            f"🗳️ Votação #{poll_id} Criada",
+            f"**Criador:** {interaction.user.mention}\n"
+            f"**Pergunta:** {pergunta}\n"
+            f"**Duração:** {duracao} h\n"
+            f"**Opções:** {', '.join(opcoes)}",
+            discord.Color.blue()
+        )
+
         asyncio.create_task(self.finalizar_votacao(poll_id, duracao * 3600))
 
     async def finalizar_votacao(self, poll_id: int, delay: float):
