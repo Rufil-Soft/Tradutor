@@ -4,7 +4,7 @@ from discord import app_commands
 from discord.ext import commands
 from deep_translator import GoogleTranslator
 from config import FAMILIAS, CARGOS_ELEGIVEIS
-from cogs.logs import enviar_log_mafia
+from utils.logs import enviar_log_mafia
 
 # Cache de traduções (texto, idioma) -> texto traduzido
 _t_cache = {}
