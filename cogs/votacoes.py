@@ -2,8 +2,8 @@ import asyncio
 import discord
 from discord import app_commands
 from discord.ext import commands
-from deep_translator import GoogleTranslator
 from datetime import timedelta
+from deep_translator import GoogleTranslator
 from config import FAMILIAS, CARGOS_ELEGIVEIS
 from utils.logs import enviar_log_mafia
 
@@ -47,7 +47,6 @@ async def build_embed_async(pergunta: str, opcoes: list, contagem: dict,
         timestamp=discord.utils.utcnow()
     )
 
-    # Data/hora de término (sempre visível)
     unix = int(end_time.timestamp())
     if not final:
         embed.add_field(
@@ -62,7 +61,6 @@ async def build_embed_async(pergunta: str, opcoes: list, contagem: dict,
             inline=False
         )
 
-    # Resultados apenas se final e com votos
     if final and total_votos > 0:
         vencedor_idx = max(contagem, key=contagem.get)
         vencedor_txt = opcoes[vencedor_idx]
@@ -157,14 +155,17 @@ class VotacaoView(discord.ui.View):
             await interaction.response.send_message(msg.format(self.opcoes[opcao_idx]), ephemeral=True)
 
     async def cancel_callback(self, interaction: discord.Interaction):
+        """Apenas o Don (ou administrador) pode cancelar a votação."""
         user = interaction.user
         dados = poll_data.get(self.poll_id)
         if not dados:
             await interaction.response.send_message("⛔ This poll is no longer active.", ephemeral=True)
             return
 
-        if user.id != self.criador_id and not user.guild_permissions.administrator:
-            await interaction.response.send_message("🛑 Only the creator or an administrator can cancel this poll.", ephemeral=True)
+        # Verifica se o utilizador tem o cargo "Don" ou permissão de administrador
+        is_don = discord.utils.get(user.roles, name="Don") is not None
+        if not (is_don or user.guild_permissions.administrator):
+            await interaction.response.send_message("🛑 Apenas o Don pode cancelar uma votação.", ephemeral=True)
             return
 
         for channel_id, message_id in dados.get("mensagens", []):
@@ -242,9 +243,18 @@ class Votacoes(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="votacao", description="Abrir formulário para criar uma votação")
-    @app_commands.default_permissions(administrator=True)
+    @app_commands.command(name="votacao", description="Abrir formulário para criar uma votação (Capos e Don)")
     async def abrir_modal_votacao(self, interaction: discord.Interaction):
+        # Verificar permissões: Capo, Don ou Administrador
+        user = interaction.user
+        is_capo = discord.utils.get(user.roles, name="Capo") is not None
+        is_don = discord.utils.get(user.roles, name="Don") is not None
+        if not (is_capo or is_don or user.guild_permissions.administrator):
+            await interaction.response.send_message(
+                "❌ Apenas **Capos** ou o **Don** podem criar votações.", ephemeral=True
+            )
+            return
+
         modal = VotacaoModal(self)
         await interaction.response.send_modal(modal)
 
