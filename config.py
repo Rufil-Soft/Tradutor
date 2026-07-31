@@ -7,4 +7,4 @@ FAMILIAS = {
 }
 LIMITE_SOLDIERS = 20
 CARGOS_ELEGIVEIS = ["Don", "Capo", "Soldier", "Consigliere", "Capodecina", "Assistente"]
-BLOCK_TIMEOUT = 30  # segundos para fechar bloco de tradução
+
