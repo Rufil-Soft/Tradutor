@@ -7,8 +7,7 @@ from bot import bot
 from servidor_dummy import start_dummy_server
 
 # Lista de cogs a carregar (nomes dos módulos dentro da pasta cogs)
-COGS = [
-    "cogs.logs",             # carrega primeiro, outros dependem dele
+COGS = [           # carrega primeiro, outros dependem dele
     "cogs.traducao",
     "cogs.votacoes",
     "cogs.paineis",
