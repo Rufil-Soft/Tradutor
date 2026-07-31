@@ -112,7 +112,8 @@ class CapoRegistryView(discord.ui.View):
             if not categoria:
                 categoria = await guild.create_category(nome_cat, overwrites=overwrites_base)
             
-            # Canal Anúncios
+           
+           # Canal Anúncios
             canal_anuncios = discord.utils.get(categoria.text_channels, name="📜-capo-announcements")
             overwrites_announcements = {
                 guild.default_role: discord.PermissionOverwrite(read_messages=False),
