@@ -93,4 +93,5 @@ class Traducao(commands.Cog):
 
 
 async def setup(bot: commands.Bot):
+    bot.add_view(TranslateView()) 
     await bot.add_cog(Traducao(bot))
