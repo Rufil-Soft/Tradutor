@@ -1,7 +1,7 @@
 import discord
 from discord.ext import commands
 from config import FAMILIAS, LIMITE_SOLDIERS
-from cogs.logs import enviar_log_mafia  # (não usado neste ficheiro, mas inofensivo)
+from utils.logs import enviar_log_mafia  # <-- nova importação
 from bot import bot
 
 class ComandosSetup(commands.Cog):
@@ -149,14 +149,19 @@ class ComandosSetup(commands.Cog):
                             if message.attachments:
                                 links = "\n".join(f"[{a.filename}]({a.url})" for a in message.attachments)
                                 embed.add_field(name="📎 Anexos", value=links, inline=False)
-                                # Se o primeiro anexo for uma imagem, usa como imagem do embed
                                 primeiro = message.attachments[0]
                                 if primeiro.content_type and primeiro.content_type.startswith("image/"):
                                     embed.set_image(url=primeiro.url)
 
                             await canal_warnings.send(embed=embed)
                         except Exception as e:
-                            print(f"Erro ao propagar aviso para {nome_familia}: {e}")
+                            # Loga o erro no canal de logs
+                            await enviar_log_mafia(
+                                message.guild,
+                                "⚠️ Falha na Propagação",
+                                f"Não foi possível enviar comunicado para **{nome_familia}**: {e}",
+                                discord.Color.orange()
+                            )
             try:
                 await message.add_reaction("✅")
             except discord.Forbidden:
