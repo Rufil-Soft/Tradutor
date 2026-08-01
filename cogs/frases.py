@@ -3,7 +3,7 @@ import random
 import asyncio
 import discord
 from discord.ext import commands
-from cogs.traducao import TranslateView
+from cogs.traducao import TranslateView, registar_mensagem
 from groq import AsyncGroq
 
 FRASES_EN = [
@@ -155,12 +155,13 @@ class Frases(commands.Cog):
 
             conteudo_formatado = f"<@{message.author.id}>: {message.content}"
             files = [await a.to_file() for a in message.attachments]
-            await message.channel.send(
+            msg_echo = await message.channel.send(
                 content=conteudo_formatado,
                 files=files,
                 view=TranslateView(),
                 allowed_mentions=discord.AllowedMentions(users=False)
             )
+            registar_mensagem(msg_echo.id, conteudo_formatado, message.content)
 
             resposta = await self._gerar_resposta_ia(message.content)
             if not resposta:
@@ -168,12 +169,16 @@ class Frases(commands.Cog):
 
             async with message.channel.typing():
                 await asyncio.sleep(1)
-                await message.channel.send(f"💬 {resposta}", view=TranslateView())
+                base_resposta = f"💬 {resposta}"
+                msg_resposta = await message.channel.send(base_resposta, view=TranslateView())
+                registar_mensagem(msg_resposta.id, base_resposta, resposta)
 
     @commands.command(name="frase")
     async def frase(self, ctx):
         frase_original = frase_manager.next()
-        await ctx.send(f"🗣️ {frase_original}", view=TranslateView())
+        base = f"🗣️ {frase_original}"
+        msg = await ctx.send(base, view=TranslateView())
+        registar_mensagem(msg.id, base, frase_original)
 
 
 async def setup(bot: commands.Bot):
