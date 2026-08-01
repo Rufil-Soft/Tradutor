@@ -13,9 +13,7 @@ COGS = [
     "cogs.paineis",
     "cogs.comandos_setup",
     "cogs.admin",
-    "cogs.frases",
-    "cogs.jogo.economia",
-    "cogs.jogo.painel_jogo"
+    "cogs.frases",    
 ]
 
 async def load_extensions():
