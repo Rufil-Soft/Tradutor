@@ -11,13 +11,12 @@ class TranslateView(discord.ui.View):
 
     @discord.ui.button(style=discord.ButtonStyle.secondary, emoji="🌍", custom_id="persistent_translate_button")
     async def translate_button_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
-
+        # Não usamos defer – vamos responder com um modal diretamente
         message = interaction.message
         message_text = message.content
 
         if not message_text:
-            await interaction.followup.send("Não há texto para traduzir.", ephemeral=True)
+            await interaction.response.send_message("Não há texto para traduzir.", ephemeral=True)
             return
 
         # Extrai o texto real removendo a menção inicial (ex: "<@123456>: Olá" -> "Olá")
@@ -45,17 +44,24 @@ class TranslateView(discord.ui.View):
                     translation_cache[cache_key] = translated
             except Exception as e:
                 print(f"[TRADUTOR] Erro na tradução: {e}")
-                await interaction.followup.send("Erro ao traduzir. Tenta novamente.", ephemeral=True)
+                await interaction.response.send_message("Erro ao traduzir. Tenta novamente.", ephemeral=True)
                 return
 
         if not translated:
-            await interaction.followup.send("Não foi possível traduzir o texto.", ephemeral=True)
+            await interaction.response.send_message("Não foi possível traduzir o texto.", ephemeral=True)
             return
 
-        await interaction.followup.send(
-            f"{translated}",
-            ephemeral=True
-        )
+        # Criar modal com a tradução (campo de texto apenas de leitura)
+        class TranslationModal(discord.ui.Modal, title="🌍 Tradução"):
+            texto_traduzido = discord.ui.TextInput(
+                label="Tradução",
+                style=discord.TextStyle.paragraph,
+                default=translated,
+                required=False,
+                max_length=4000  # tamanho máximo seguro
+            )
+
+        await interaction.response.send_modal(TranslationModal())
 
 
 class Traducao(commands.Cog):
