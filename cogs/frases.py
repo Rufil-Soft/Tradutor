@@ -59,6 +59,9 @@ FRASES_EN = [
     "Judgment day has come: we decide the best strain of the month."
 ]
 
+# Quantas frases de exemplo mostrar à IA por chamada (estilo/voz), rotativas.
+AMOSTRA_ESTILO = 8
+
 
 class FraseManager:
     def __init__(self, frases):
@@ -74,6 +77,12 @@ class FraseManager:
         if not self._fila:
             self._refill()
         return self._fila.pop()
+
+    def amostra(self, k: int) -> list:
+        """Devolve uma amostra aleatória (sem repetição) das frases base, para usar como
+        exemplos de estilo/voz na chamada à IA."""
+        k = min(k, len(self._frases))
+        return random.sample(self._frases, k)
 
 
 frase_manager = FraseManager(FRASES_EN)
@@ -94,21 +103,28 @@ class Frases(commands.Cog):
         else:
             print("[FRASES] ⚠️ GROQ_API_KEY não definida. A usar apenas frases fixas.")
 
-    async def _gerar_resposta_ia(self, frase_base: str, mensagem_usuario: str) -> str:
+    async def _gerar_resposta_ia(self, mensagem_usuario: str) -> str:
         if not self.groq_client:
             return None
+
+        exemplos = frase_manager.amostra(AMOSTRA_ESTILO)
+        exemplos_texto = "\n".join(f"- {frase}" for frase in exemplos)
 
         system_prompt = (
             "You are Aquiles, the Don of a cannabis-themed mafia family. "
             "You are witty, wise, and speak like a classic mafia godfather but with a cannabis twist. "
             "Keep your answers short (2-3 sentences), in English, and always cool and respectful. "
             "You can refer to cannabis as 'herb', 'medicine', 'green gold', etc. "
-            "Never break character."
+            "Never break character.\n\n"
+            "Below are examples of your voice, humor and recurring references. "
+            "Do NOT repeat any of them verbatim — use them only to calibrate tone, "
+            "wordplay style, and the kind of mafia/cannabis references you make:\n"
+            f"{exemplos_texto}"
         )
         user_prompt = (
-            f"Context: Someone just said: \"{mensagem_usuario}\"\n"
-            f"Base idea to use (but you can adapt): \"{frase_base}\"\n\n"
-            "Generate a natural, short reply as Aquiles the Don."
+            f"Someone just said to you: \"{mensagem_usuario}\"\n\n"
+            "Reply in character as Aquiles, reacting specifically to what they said, "
+            "in your usual voice."
         )
 
         try:
@@ -119,7 +135,7 @@ class Frases(commands.Cog):
                     {"role": "user", "content": user_prompt}
                 ],
                 max_tokens=150,
-                temperature=0.8,
+                temperature=0.9,
             )
             return response.choices[0].message.content.strip()
         except Exception as e:
@@ -146,10 +162,9 @@ class Frases(commands.Cog):
                 allowed_mentions=discord.AllowedMentions(users=False)
             )
 
-            frase_base = frase_manager.next()
-            resposta = await self._gerar_resposta_ia(frase_base, message.content)
+            resposta = await self._gerar_resposta_ia(message.content)
             if not resposta:
-                resposta = frase_base
+                resposta = frase_manager.next()
 
             async with message.channel.typing():
                 await asyncio.sleep(1)
