@@ -1,4 +1,5 @@
 import asyncio
+import re
 import discord
 from discord.ext import commands
 from deep_translator import GoogleTranslator
@@ -8,6 +9,14 @@ translation_cache = {}  # (texto, idioma) -> texto traduzido
 # Estado por mensagem: message_id -> {"base": str, "original": str, "traducoes": {idioma: texto}}
 mensagens_dados = {}
 mensagens_locks = {}  # message_id -> asyncio.Lock()
+
+
+def registar_mensagem(message_id: int, base: str, original: str):
+    """Regista uma mensagem enviada por qualquer cog para que o botão 🌍 saiba
+    exatamente qual é o texto original a traduzir, sem depender de heurísticas
+    frágeis (como cortar no primeiro ':').
+    """
+    mensagens_dados[message_id] = {"base": base, "original": original, "traducoes": {}}
 
 
 class TranslateView(discord.ui.View):
@@ -22,10 +31,8 @@ class TranslateView(discord.ui.View):
         # Fallback para mensagens enviadas antes de o bot reiniciar (sem registo em memória)
         if not dados:
             texto_atual = message.content
-            if ":" in texto_atual:
-                texto_original = texto_atual.split(":", 1)[1].strip()
-            else:
-                texto_original = texto_atual
+            match = re.match(r"^<@!?\d+>:\s*", texto_atual)
+            texto_original = texto_atual[match.end():] if match else texto_atual
             dados = {"base": texto_atual, "original": texto_original, "traducoes": {}}
             mensagens_dados[message.id] = dados
 
@@ -60,7 +67,13 @@ class TranslateView(discord.ui.View):
                     translation_cache[cache_key] = translated
 
             if not translated:
-                return  # falha silenciosa; a mensagem fica como estava
+                try:
+                    await interaction.followup.send(
+                        "Não foi possível traduzir agora. Tenta novamente.", ephemeral=True
+                    )
+                except discord.HTTPException:
+                    pass
+                return
 
             dados["traducoes"][user_locale] = translated
             linhas_traducao = "\n".join(
@@ -100,11 +113,7 @@ class Traducao(commands.Cog):
                 view=TranslateView(),
                 allowed_mentions=discord.AllowedMentions(users=False)
             )
-            mensagens_dados[msg_enviada.id] = {
-                "base": conteudo_formatado,
-                "original": texto_original,
-                "traducoes": {}
-            }
+            registar_mensagem(msg_enviada.id, conteudo_formatado, texto_original)
         except discord.Forbidden:
             pass
         except Exception as e:
