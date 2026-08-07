@@ -1,8 +1,8 @@
 import asyncio
 import discord
 from discord import app_commands
-from discord.ext import commands
-from datetime import timedelta
+from discord.ext import commands, tasks
+from datetime import timedelta, datetime
 from deep_translator import GoogleTranslator
 from config import FAMILIAS, CARGOS_ELEGIVEIS
 from utils.logs import enviar_log_mafia
@@ -162,7 +162,6 @@ class VotacaoView(discord.ui.View):
             await interaction.response.send_message("⛔ This poll is no longer active.", ephemeral=True)
             return
 
-        # Verifica se o utilizador tem o cargo "Don" ou permissão de administrador
         is_don = discord.utils.get(user.roles, name="Don") is not None
         if not (is_don or user.guild_permissions.administrator):
             await interaction.response.send_message("🛑 Apenas o Don pode cancelar uma votação.", ephemeral=True)
@@ -242,10 +241,71 @@ class Votacoes(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self.verificar_votacoes.start()
+
+    def cog_unload(self):
+        self.verificar_votacoes.cancel()
+
+    @tasks.loop(seconds=30)
+    async def verificar_votacoes(self):
+        """Verifica periodicamente se há votações cujo prazo expirou e finaliza-as."""
+        agora = discord.utils.utcnow()
+        polls_a_finalizar = []
+        for poll_id, dados in poll_data.items():
+            if "end_time" in dados and dados["end_time"] <= agora:
+                polls_a_finalizar.append(poll_id)
+
+        for poll_id in polls_a_finalizar:
+            await self._finalizar_votacao(poll_id)
+
+    @verificar_votacoes.before_loop
+    async def antes_do_loop(self):
+        await self.bot.wait_until_ready()
+
+    async def _finalizar_votacao(self, poll_id: int):
+        dados = poll_data.get(poll_id)
+        if not dados:
+            return
+
+        contagem = {i: 0 for i in range(len(dados["opcoes"]))}
+        for v in dados["votos"].values():
+            if v in contagem:
+                contagem[v] += 1
+        total_votos = len(dados["votos"])
+        lang = dados.get("lang", "pt")
+
+        embed_final = await build_embed_async(
+            pergunta=dados["pergunta"],
+            opcoes=dados["opcoes"],
+            contagem=contagem,
+            total_votos=total_votos,
+            end_time=dados["end_time"],
+            final=True,
+            lang=lang
+        )
+
+        for channel_id, message_id in dados["mensagens"]:
+            try:
+                canal = self.bot.get_channel(channel_id)
+                if canal:
+                    msg = await canal.fetch_message(message_id)
+                    await msg.edit(embed=embed_final, view=None)
+            except Exception as e:
+                print(f"Erro ao finalizar mensagem {message_id}: {e}")
+
+        guild = self.bot.get_guild(dados["guild_id"])
+        if guild:
+            await enviar_log_mafia(
+                guild,
+                f"🗳️ Votação #{poll_id} Encerrada",
+                f"**{dados['pergunta']}**\nVotos: {total_votos}",
+                discord.Color.blue()
+            )
+
+        del poll_data[poll_id]
 
     @app_commands.command(name="votacao", description="Abrir formulário para criar uma votação (Capos e Don)")
     async def abrir_modal_votacao(self, interaction: discord.Interaction):
-        # Verificar permissões: Capo, Don ou Administrador
         user = interaction.user
         is_capo = discord.utils.get(user.roles, name="Capo") is not None
         is_don = discord.utils.get(user.roles, name="Don") is not None
@@ -296,10 +356,13 @@ class Votacoes(commands.Cog):
             lang=criador_locale
         )
 
+        # Mensagem original
         view_original = VotacaoView(poll_id, opcoes, criador_id=interaction.user.id, lang=criador_locale)
         msg_original = await interaction.channel.send(embed=embed_inicial, view=view_original)
         poll_data[poll_id]["mensagens"].append((interaction.channel_id, msg_original.id))
+        self.bot.add_view(view_original)                        # <-- persistente
 
+        # Propagação
         for familia_key, nome_familia in FAMILIAS.items():
             nome_cat = f"🍷 {nome_familia.upper()}"
             categoria = discord.utils.get(guild.categories, name=nome_cat)
@@ -310,6 +373,7 @@ class Votacoes(commands.Cog):
                         view_fam = VotacaoView(poll_id, opcoes, criador_id=interaction.user.id, lang=criador_locale)
                         msg_fam = await canal_votacoes.send(embed=embed_inicial, view=view_fam)
                         poll_data[poll_id]["mensagens"].append((canal_votacoes.id, msg_fam.id))
+                        self.bot.add_view(view_fam)            # <-- persistente
                     except Exception as e:
                         print(f"Erro ao propagar para {nome_familia}: {e}")
 
@@ -319,7 +383,6 @@ class Votacoes(commands.Cog):
             ephemeral=True
         )
 
-        # ----- 📝 NOVO LOG DE CRIAÇÃO DA VOTAÇÃO -----
         await enviar_log_mafia(
             guild,
             f"🗳️ Votação #{poll_id} Criada",
@@ -329,51 +392,6 @@ class Votacoes(commands.Cog):
             f"**Opções:** {', '.join(opcoes)}",
             discord.Color.blue()
         )
-
-        asyncio.create_task(self.finalizar_votacao(poll_id, duracao * 3600))
-
-    async def finalizar_votacao(self, poll_id: int, delay: float):
-        await asyncio.sleep(delay)
-        dados = poll_data.get(poll_id)
-        if not dados:
-            return
-
-        contagem = {i: 0 for i in range(len(dados["opcoes"]))}
-        for v in dados["votos"].values():
-            if v in contagem:
-                contagem[v] += 1
-        total_votos = len(dados["votos"])
-        lang = dados.get("lang", "pt")
-
-        embed_final = await build_embed_async(
-            pergunta=dados["pergunta"],
-            opcoes=dados["opcoes"],
-            contagem=contagem,
-            total_votos=total_votos,
-            end_time=dados["end_time"],
-            final=True,
-            lang=lang
-        )
-
-        for channel_id, message_id in dados["mensagens"]:
-            try:
-                canal = self.bot.get_channel(channel_id)
-                if canal:
-                    msg = await canal.fetch_message(message_id)
-                    await msg.edit(embed=embed_final, view=None)
-            except Exception as e:
-                print(f"Erro ao finalizar mensagem {message_id}: {e}")
-
-        guild = self.bot.get_guild(dados["guild_id"])
-        if guild:
-            await enviar_log_mafia(
-                guild,
-                f"🗳️ Votação #{poll_id} Encerrada",
-                f"**{dados['pergunta']}**\nVotos: {total_votos}",
-                discord.Color.blue()
-            )
-
-        del poll_data[poll_id]
 
 
 async def setup(bot: commands.Bot):
