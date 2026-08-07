@@ -250,12 +250,16 @@ class Votacoes(commands.Cog):
     async def verificar_votacoes(self):
         """Verifica periodicamente se há votações cujo prazo expirou e finaliza-as."""
         agora = discord.utils.utcnow()
+        print(f"[VOTACOES] Verificando votações... ({agora})")
         polls_a_finalizar = []
         for poll_id, dados in poll_data.items():
-            if "end_time" in dados and dados["end_time"] <= agora:
-                polls_a_finalizar.append(poll_id)
-
+            if "end_time" in dados:
+                print(f"[VOTACOES]   Poll #{poll_id}: end_time={dados['end_time']} (agora={agora})")
+                if dados["end_time"] <= agora:
+                    polls_a_finalizar.append(poll_id)
+                    print(f"[VOTACOES]   -> Poll #{poll_id} deve ser encerrada!")
         for poll_id in polls_a_finalizar:
+            print(f"[VOTACOES] Chamando _finalizar_votacao para #{poll_id}")
             await self._finalizar_votacao(poll_id)
 
     @verificar_votacoes.before_loop
@@ -265,7 +269,9 @@ class Votacoes(commands.Cog):
     async def _finalizar_votacao(self, poll_id: int):
         dados = poll_data.get(poll_id)
         if not dados:
+            print(f"[VOTACOES] _finalizar_votacao: poll #{poll_id} não encontrada (já removida?)")
             return
+        print(f"[VOTACOES] _finalizar_votacao: processando #{poll_id}...")
 
         contagem = {i: 0 for i in range(len(dados["opcoes"]))}
         for v in dados["votos"].values():
@@ -290,8 +296,9 @@ class Votacoes(commands.Cog):
                 if canal:
                     msg = await canal.fetch_message(message_id)
                     await msg.edit(embed=embed_final, view=None)
+                    print(f"[VOTACOES]   Mensagem {message_id} editada com sucesso.")
             except Exception as e:
-                print(f"Erro ao finalizar mensagem {message_id}: {e}")
+                print(f"[VOTACOES]   Erro ao editar mensagem {message_id}: {e}")
 
         guild = self.bot.get_guild(dados["guild_id"])
         if guild:
@@ -303,6 +310,7 @@ class Votacoes(commands.Cog):
             )
 
         del poll_data[poll_id]
+        print(f"[VOTACOES]   Poll #{poll_id} removida da memória.")
 
     @app_commands.command(name="votacao", description="Abrir formulário para criar uma votação (Capos e Don)")
     async def abrir_modal_votacao(self, interaction: discord.Interaction):
@@ -360,7 +368,7 @@ class Votacoes(commands.Cog):
         view_original = VotacaoView(poll_id, opcoes, criador_id=interaction.user.id, lang=criador_locale)
         msg_original = await interaction.channel.send(embed=embed_inicial, view=view_original)
         poll_data[poll_id]["mensagens"].append((interaction.channel_id, msg_original.id))
-        self.bot.add_view(view_original)                        # <-- persistente
+        self.bot.add_view(view_original)
 
         # Propagação
         for familia_key, nome_familia in FAMILIAS.items():
@@ -373,7 +381,7 @@ class Votacoes(commands.Cog):
                         view_fam = VotacaoView(poll_id, opcoes, criador_id=interaction.user.id, lang=criador_locale)
                         msg_fam = await canal_votacoes.send(embed=embed_inicial, view=view_fam)
                         poll_data[poll_id]["mensagens"].append((canal_votacoes.id, msg_fam.id))
-                        self.bot.add_view(view_fam)            # <-- persistente
+                        self.bot.add_view(view_fam)
                     except Exception as e:
                         print(f"Erro ao propagar para {nome_familia}: {e}")
 
