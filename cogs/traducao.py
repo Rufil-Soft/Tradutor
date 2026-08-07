@@ -6,11 +6,17 @@ from deep_translator import GoogleTranslator
 translation_cache = {}
 mensagens_dados = {}
 mensagens_locks = {}
+MAX_VISIVEIS = 4  # número máximo de traduções visíveis na mensagem
 
-MAX_TRADUCOES_VISIVEIS = 4  # limite de traduções mostradas na mensagem
 
 def registar_mensagem(message_id: int, base: str, original: str):
-    mensagens_dados[message_id] = {"base": base, "original": original, "traducoes": {}}
+    mensagens_dados[message_id] = {
+        "base": base,
+        "original": original,
+        "traducoes": {},         # {idioma: texto}
+        "ordem_insercao": []     # lista de idiomas por ordem de clique (último no fim)
+    }
+
 
 class TranslateView(discord.ui.View):
     def __init__(self):
@@ -21,10 +27,10 @@ class TranslateView(discord.ui.View):
         message = interaction.message
         dados = mensagens_dados.get(message.id)
 
+        # Fallback para mensagens sem registo
         if not dados:
             texto_atual = message.content
-            # fallback simples
-            dados = {"base": texto_atual, "original": texto_atual, "traducoes": {}}
+            dados = {"base": texto_atual, "original": texto_atual, "traducoes": {}, "ordem_insercao": []}
             mensagens_dados[message.id] = dados
 
         if not dados["original"]:
@@ -35,43 +41,51 @@ class TranslateView(discord.ui.View):
 
         lock = mensagens_locks.setdefault(message.id, asyncio.Lock())
         async with lock:
+            # Se a tradução já existe, apenas a colocamos como a mais recente (mostrada)
             if user_locale in dados["traducoes"]:
+                # Move o idioma para o fim da ordem
+                if user_locale in dados["ordem_insercao"]:
+                    dados["ordem_insercao"].remove(user_locale)
+                dados["ordem_insercao"].append(user_locale)
                 await interaction.response.defer()
-                return
-
-            await interaction.response.defer()
-
-            cache_key = (dados["original"], user_locale)
-            if cache_key in translation_cache:
-                translated = translation_cache[cache_key]
             else:
-                try:
-                    translated = await asyncio.to_thread(
-                        GoogleTranslator(source='auto', target=user_locale).translate,
-                        dados["original"]
-                    )
-                    if translated:
-                        translation_cache[cache_key] = translated
-                except Exception as e:
-                    print(f"[TRADUTOR] Erro na tradução: {e}")
-                    translated = None
+                await interaction.response.defer()
 
-            if not translated:
-                try:
-                    await interaction.followup.send("Erro ao traduzir. Tenta novamente.", ephemeral=True)
-                except discord.HTTPException:
-                    pass
-                return
+                cache_key = (dados["original"], user_locale)
+                if cache_key in translation_cache:
+                    translated = translation_cache[cache_key]
+                else:
+                    try:
+                        translated = await asyncio.to_thread(
+                            GoogleTranslator(source='auto', target=user_locale).translate,
+                            dados["original"]
+                        )
+                        if translated:
+                            translation_cache[cache_key] = translated
+                    except Exception as e:
+                        print(f"[TRADUTOR] Erro na tradução: {e}")
+                        translated = None
 
-            dados["traducoes"][user_locale] = translated
+                if not translated:
+                    try:
+                        await interaction.followup.send("Erro ao traduzir. Tenta novamente.", ephemeral=True)
+                    except discord.HTTPException:
+                        pass
+                    return
 
-            # Manter apenas as últimas MAX_TRADUCOES_VISIVEIS (remover as mais antigas)
-            while len(dados["traducoes"]) > MAX_TRADUCOES_VISIVEIS:
-                oldest_key = next(iter(dados["traducoes"]))
-                del dados["traducoes"][oldest_key]
+                dados["traducoes"][user_locale] = translated
+                dados["ordem_insercao"].append(user_locale)
 
+            # Se tivermos mais do que MAX_VISIVEIS, manter apenas os últimos MAX_VISIVEIS na ordem de exibição
+            # (mas os dados continuam guardados, apenas não são mostrados)
+            while len(dados["ordem_insercao"]) > MAX_VISIVEIS:
+                # Remove o idioma mais antigo da ordem de exibição
+                old = dados["ordem_insercao"].pop(0)
+                # Não apagamos do dicionário, apenas da ordem; assim a tradução não se perde
+
+            # Construir as linhas de tradução apenas com os idiomas na ordem_insercao
             linhas_traducao = "\n".join(
-                f"🌍 {lang.upper()}: {txt}" for lang, txt in dados["traducoes"].items()
+                f"🌍 {lang.upper()}: {dados['traducoes'][lang]}" for lang in dados["ordem_insercao"]
             )
             novo_conteudo = f"{dados['base']}\n{linhas_traducao}"
             try:
@@ -83,7 +97,7 @@ class TranslateView(discord.ui.View):
 class Traducao(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        print("[TRADUÇÃO] Cog carregado — traduções limitadas a 3 por mensagem.")
+        print("[TRADUÇÃO] Cog carregado — traduções acumuladas com limite visual.")
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -101,10 +115,8 @@ class Traducao(commands.Cog):
             texto_original = message.content
             files = [await a.to_file() for a in message.attachments]
 
-            # Tenta apagar a mensagem original
             await message.delete()
-            # Pequeno atraso para o Discord processar a eliminação
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(0.3)  # dá tempo ao Discord para processar a eliminação
 
             msg_enviada = await message.channel.send(
                 content=conteudo_formatado,
@@ -114,7 +126,7 @@ class Traducao(commands.Cog):
             )
             registar_mensagem(msg_enviada.id, conteudo_formatado, texto_original)
         except discord.Forbidden:
-            # Se não pode apagar, não faz nada para evitar duplicação
+            # Se não pode apagar, não republica – evita duplicação
             pass
         except Exception as e:
             print(f"[TRADUÇÃO] Erro ao processar mensagem limpa: {e}")
