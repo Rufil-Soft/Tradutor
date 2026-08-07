@@ -1,23 +1,16 @@
 import asyncio
-import re
 import discord
 from discord.ext import commands
 from deep_translator import GoogleTranslator
 
-translation_cache = {}  # (texto, idioma) -> texto traduzido
-
-# Estado por mensagem: message_id -> {"base": str, "original": str, "traducoes": {idioma: texto}}
+translation_cache = {}
 mensagens_dados = {}
-mensagens_locks = {}  # message_id -> asyncio.Lock()
+mensagens_locks = {}
 
+MAX_TRADUCOES_VISIVEIS = 4  # limite de traduções mostradas na mensagem
 
 def registar_mensagem(message_id: int, base: str, original: str):
-    """Regista uma mensagem enviada por qualquer cog para que o botão 🌍 saiba
-    exatamente qual é o texto original a traduzir, sem depender de heurísticas
-    frágeis (como cortar no primeiro ':').
-    """
     mensagens_dados[message_id] = {"base": base, "original": original, "traducoes": {}}
-
 
 class TranslateView(discord.ui.View):
     def __init__(self):
@@ -28,12 +21,10 @@ class TranslateView(discord.ui.View):
         message = interaction.message
         dados = mensagens_dados.get(message.id)
 
-        # Fallback para mensagens enviadas antes de o bot reiniciar (sem registo em memória)
         if not dados:
             texto_atual = message.content
-            match = re.match(r"^<@!?\d+>:\s*", texto_atual)
-            texto_original = texto_atual[match.end():] if match else texto_atual
-            dados = {"base": texto_atual, "original": texto_original, "traducoes": {}}
+            # fallback simples
+            dados = {"base": texto_atual, "original": texto_atual, "traducoes": {}}
             mensagens_dados[message.id] = dados
 
         if not dados["original"]:
@@ -44,12 +35,11 @@ class TranslateView(discord.ui.View):
 
         lock = mensagens_locks.setdefault(message.id, asyncio.Lock())
         async with lock:
-            # Já traduzido para este idioma -> já está visível na mensagem, só reconhece a interação
             if user_locale in dados["traducoes"]:
                 await interaction.response.defer()
                 return
 
-            await interaction.response.defer()  # ack rápido, sem mensagem extra visível
+            await interaction.response.defer()
 
             cache_key = (dados["original"], user_locale)
             if cache_key in translation_cache:
@@ -60,22 +50,26 @@ class TranslateView(discord.ui.View):
                         GoogleTranslator(source='auto', target=user_locale).translate,
                         dados["original"]
                     )
+                    if translated:
+                        translation_cache[cache_key] = translated
                 except Exception as e:
                     print(f"[TRADUTOR] Erro na tradução: {e}")
                     translated = None
-                if translated:
-                    translation_cache[cache_key] = translated
 
             if not translated:
                 try:
-                    await interaction.followup.send(
-                        "Não foi possível traduzir agora. Tenta novamente.", ephemeral=True
-                    )
+                    await interaction.followup.send("Erro ao traduzir. Tenta novamente.", ephemeral=True)
                 except discord.HTTPException:
                     pass
                 return
 
             dados["traducoes"][user_locale] = translated
+
+            # Manter apenas as últimas MAX_TRADUCOES_VISIVEIS (remover as mais antigas)
+            while len(dados["traducoes"]) > MAX_TRADUCOES_VISIVEIS:
+                oldest_key = next(iter(dados["traducoes"]))
+                del dados["traducoes"][oldest_key]
+
             linhas_traducao = "\n".join(
                 f"🌍 {lang.upper()}: {txt}" for lang, txt in dados["traducoes"].items()
             )
@@ -89,7 +83,7 @@ class TranslateView(discord.ui.View):
 class Traducao(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        print("[TRADUÇÃO] Cog carregado — traduções acumuladas na própria mensagem.")
+        print("[TRADUÇÃO] Cog carregado — traduções limitadas a 3 por mensagem.")
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -99,14 +93,19 @@ class Traducao(commands.Cog):
             return
         if message.channel.name == "🎯-capos-message":
             return
-        # Ignorar mensagens que mencionam o Aquiles (tratado pelo frases.py)
         if self.bot.user in message.mentions:
             return
+
         try:
             conteudo_formatado = f"<@{message.author.id}>: {message.content}"
             texto_original = message.content
             files = [await a.to_file() for a in message.attachments]
+
+            # Tenta apagar a mensagem original
             await message.delete()
+            # Pequeno atraso para o Discord processar a eliminação
+            await asyncio.sleep(0.3)
+
             msg_enviada = await message.channel.send(
                 content=conteudo_formatado,
                 files=files,
@@ -115,6 +114,7 @@ class Traducao(commands.Cog):
             )
             registar_mensagem(msg_enviada.id, conteudo_formatado, texto_original)
         except discord.Forbidden:
+            # Se não pode apagar, não faz nada para evitar duplicação
             pass
         except Exception as e:
             print(f"[TRADUÇÃO] Erro ao processar mensagem limpa: {e}")
