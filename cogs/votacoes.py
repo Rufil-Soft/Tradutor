@@ -241,7 +241,14 @@ class Votacoes(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.verificar_votacoes.start()
+        self.loop_iniciado = False
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        if not self.loop_iniciado:
+            self.verificar_votacoes.start()
+            self.loop_iniciado = True
+            print("[VOTACOES] Loop de verificação iniciado.")
 
     def cog_unload(self):
         self.verificar_votacoes.cancel()
@@ -261,10 +268,6 @@ class Votacoes(commands.Cog):
         for poll_id in polls_a_finalizar:
             print(f"[VOTACOES] Chamando _finalizar_votacao para #{poll_id}")
             await self._finalizar_votacao(poll_id)
-
-    @verificar_votacoes.before_loop
-    async def antes_do_loop(self):
-        await self.bot.wait_until_ready()
 
     async def _finalizar_votacao(self, poll_id: int):
         dados = poll_data.get(poll_id)
