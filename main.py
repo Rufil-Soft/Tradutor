@@ -1,10 +1,36 @@
 import os
 import asyncio
 import traceback
+import time
+import os.path
 import discord
 from discord import app_commands
 from bot import bot
 from servidor_dummy import start_dummy_server
+
+# ---------- ANTI‑RATE‑LIMIT ----------
+LAST_LOGIN_FILE = "last_login.txt"
+MIN_LOGIN_INTERVAL = 60  # segundos
+
+def wait_for_login_cooldown():
+    """Se o bot tentou iniciar há menos de MIN_LOGIN_INTERVAL segundos, espera."""
+    if os.path.exists(LAST_LOGIN_FILE):
+        try:
+            with open(LAST_LOGIN_FILE, "r") as f:
+                last_timestamp = float(f.read().strip())
+            elapsed = time.time() - last_timestamp
+            if elapsed < MIN_LOGIN_INTERVAL:
+                wait_time = MIN_LOGIN_INTERVAL - elapsed
+                print(f"[ANTI-RATE] Último login há {elapsed:.0f}s. Aguardando {wait_time:.0f}s...")
+                time.sleep(wait_time)
+        except Exception as e:
+            print(f"[ANTI-RATE] Erro ao ler ficheiro de login: {e}")
+
+def update_last_login():
+    """Guarda o timestamp atual no ficheiro."""
+    with open(LAST_LOGIN_FILE, "w") as f:
+        f.write(str(time.time()))
+# ------------------------------------
 
 # Lista de cogs a carregar (nomes dos módulos dentro da pasta cogs)
 COGS = [
@@ -49,6 +75,8 @@ async def main():
         print("ERRO CRÍTICO: Variável de ambiente DISCORD_TOKEN não definida.")
         return
     await start_dummy_server()
+    wait_for_login_cooldown()
+    update_last_login()
     await bot.start(token)
 
 if __name__ == "__main__":
