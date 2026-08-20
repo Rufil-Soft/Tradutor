@@ -112,19 +112,17 @@ class Frases(commands.Cog):
 
         system_prompt = (
             "You are Aquiles, the Don of a cannabis-themed mafia family. "
-            "You are witty, wise, and speak like a classic mafia godfather but with a cannabis twist. "
-            "Keep your answers short (2-3 sentences), in English, and always cool and respectful. "
-            "You can refer to cannabis as 'herb', 'medicine', 'green gold', etc. "
-            "Never break character.\n\n"
-            "Below are examples of your voice, humor and recurring references. "
-            "Do NOT repeat any of them verbatim — use them only to calibrate tone, "
-            "wordplay style, and the kind of mafia/cannabis references you make:\n"
-            f"{exemplos_texto}"
+            "You are witty, wise, and speak like a classic mafia godfather with a cannabis twist. "
+            "You MUST respond directly to what the user said, in a natural, conversational way. "
+            "Do NOT use a random unrelated phrase. Do NOT repeat the examples verbatim. "
+            "The examples below are only to capture your voice and humor style:\n"
+            f"{exemplos_texto}\n\n"
+            "Always stay in character and answer the user's specific question or comment."
         )
         user_prompt = (
-            f"Someone just said to you: \"{mensagem_usuario}\"\n\n"
-            "Reply in character as Aquiles, reacting specifically to what they said, "
-            "in your usual voice."
+            f"A member of the family said: \"{mensagem_usuario}\"\n\n"
+            "Reply to THEM in character as Aquiles. Be direct, warm, and relevant to what they said. "
+            "If they asked a question, answer it. If they made a statement, react to it."
         )
 
         try:
@@ -137,7 +135,9 @@ class Frases(commands.Cog):
                 max_tokens=150,
                 temperature=0.9,
             )
-            return response.choices[0].message.content.strip()
+            resposta_gerada = response.choices[0].message.content.strip()
+            print(f"[FRASES] Resposta da IA: {resposta_gerada}")  # log para depuração
+            return resposta_gerada
         except Exception as e:
             print(f"[FRASES] Erro na API Groq: {e}")
             return None
@@ -165,7 +165,7 @@ class Frases(commands.Cog):
 
             resposta = await self._gerar_resposta_ia(message.content)
             if not resposta:
-                resposta = frase_manager.next()
+                resposta = frase_manager.next()   # fallback se a IA falhar
 
             async with message.channel.typing():
                 await asyncio.sleep(1)
