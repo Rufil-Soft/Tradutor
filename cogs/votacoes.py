@@ -256,8 +256,7 @@ class Votacoes(commands.Cog):
     @tasks.loop(seconds=30)
     async def verificar_votacoes(self):
         """Verifica periodicamente se há votações cujo prazo expirou e finaliza-as."""
-        agora = discord.utils.utcnow()
-        print(f"[VOTACOES] Verificando votações... ({agora})")
+        agora = discord.utils.utcnow()       
         polls_a_finalizar = []
         for poll_id, dados in poll_data.items():
             if "end_time" in dados:
