@@ -59,8 +59,7 @@ FRASES_EN = [
     "Judgment day has come: we decide the best strain of the month."
 ]
 
-# Quantas frases de exemplo mostrar à IA por chamada (estilo/voz), rotativas.
-AMOSTRA_ESTILO = 8
+AMOSTRA_ESTILO = 6
 
 
 class FraseManager:
@@ -79,8 +78,6 @@ class FraseManager:
         return self._fila.pop()
 
     def amostra(self, k: int) -> list:
-        """Devolve uma amostra aleatória (sem repetição) das frases base, para usar como
-        exemplos de estilo/voz na chamada à IA."""
         k = min(k, len(self._frases))
         return random.sample(self._frases, k)
 
@@ -112,17 +109,20 @@ class Frases(commands.Cog):
 
         system_prompt = (
             "You are Aquiles, the Don of a cannabis-themed mafia family. "
-            "You are witty, wise, and speak like a classic mafia godfather with a cannabis twist. "
-            "You MUST respond directly to what the user said, in a natural, conversational way. "
-            "Do NOT use a random unrelated phrase. Do NOT repeat the examples verbatim. "
-            "The examples below are only to capture your voice and humor style:\n"
-            f"{exemplos_texto}\n\n"
-            "Always stay in character and answer the user's specific question or comment."
+            "You have a sharp, wise, and laid-back mafia godfather personality with a cannabis twist. "
+            "Use the example phrases below as inspiration for tone, vocabulary, and humor, "
+            "but NEVER repeat them word-for-word. Always create a fresh answer that directly responds to the user's message.\n\n"
+            f"Examples of your style:\n{exemplos_texto}\n\n"
+            "Instructions:\n"
+            "- Answer the user's specific question or react to their statement.\n"
+            "- Stay in character at all times.\n"
+            "- Keep your reply short (2-3 sentences).\n"
+            "- Prefer common words (cannabis, marijuana, weed, herb) over obscure slang, to help translation."
         )
+
         user_prompt = (
-            f"A member of the family said: \"{mensagem_usuario}\"\n\n"
-            "Reply to THEM in character as Aquiles. Be direct, warm, and relevant to what they said. "
-            "If they asked a question, answer it. If they made a statement, react to it."
+            f"The user said: \"{mensagem_usuario}\"\n\n"
+            "Respond as Aquiles, using the example style but focused on what was said."
         )
 
         try:
@@ -136,7 +136,13 @@ class Frases(commands.Cog):
                 temperature=0.9,
             )
             resposta_gerada = response.choices[0].message.content.strip()
-            print(f"[FRASES] Resposta da IA: {resposta_gerada}")  # log para depuração
+            print(f"[FRASES] Resposta da IA: {resposta_gerada}")
+
+            # Se a IA devolver vazio ou copiar uma frase fixa, consideramos falha
+            if not resposta_gerada:
+                return None
+            if resposta_gerada in FRASES_EN:
+                return None
             return resposta_gerada
         except Exception as e:
             print(f"[FRASES] Erro na API Groq: {e}")
@@ -165,7 +171,7 @@ class Frases(commands.Cog):
 
             resposta = await self._gerar_resposta_ia(message.content)
             if not resposta:
-                resposta = frase_manager.next()   # fallback se a IA falhar
+                resposta = frase_manager.next()
 
             async with message.channel.typing():
                 await asyncio.sleep(1)
@@ -179,6 +185,15 @@ class Frases(commands.Cog):
         base = f"🗣️ {frase_original}"
         msg = await ctx.send(base, view=TranslateView())
         registar_mensagem(msg.id, base, frase_original)
+
+    @commands.command(name="iatest")
+    async def iatest(self, ctx, *, texto: str):
+        """Testa a IA diretamente, sem fallback."""
+        resposta = await self._gerar_resposta_ia(texto)
+        if resposta:
+            await ctx.send(f"🧠 IA: {resposta}")
+        else:
+            await ctx.send("❌ IA falhou ou devolveu vazio.")
 
 
 async def setup(bot: commands.Bot):
