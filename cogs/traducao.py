@@ -2,6 +2,7 @@ import asyncio
 import discord
 from discord.ext import commands
 from deep_translator import GoogleTranslator, MyMemoryTranslator
+from langdetect import detect, LangDetectException
 
 translation_cache = {}
 mensagens_dados = {}
@@ -15,6 +16,14 @@ def registar_mensagem(message_id: int, base: str, original: str):
         "traducoes": {},         # {idioma: texto}
         "ordem_insercao": []     # lista de idiomas por ordem de clique (último no fim)
     }
+
+
+def detectar_idioma(texto: str) -> str:
+    """Deteta o idioma do texto e devolve o código ISO (ex: 'en', 'pt', 'es')."""
+    try:
+        return detect(texto)
+    except LangDetectException:
+        return "en"  # fallback para inglês
 
 
 class TranslateView(discord.ui.View):
@@ -76,12 +85,14 @@ class TranslateView(discord.ui.View):
                         except Exception:
                             translated = None
 
-                    # Fallback para MyMemory com código completo (com região)
+                    # Fallback para MyMemory com código completo e origem detetada
                     if not translated or "Error" in translated or "error" in translated.lower():
                         print("[TRADUTOR] Google indisponível, a usar MyMemory...")
                         try:
+                            source_lang = detectar_idioma(dados["original"])
+                            # MyMemory não aceita 'auto', portanto usamos o idioma detetado
                             translated = await asyncio.to_thread(
-                                MyMemoryTranslator(source='auto', target=user_locale_full).translate,
+                                MyMemoryTranslator(source=source_lang, target=user_locale_full).translate,
                                 dados["original"]
                             )
                         except Exception as e:
@@ -121,7 +132,7 @@ class TranslateView(discord.ui.View):
 class Traducao(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        print("[TRADUÇÃO] Cog carregado — com fallback MyMemory (código completo) e retry Google.")
+        print("[TRADUÇÃO] Cog carregado — com fallback MyMemory e retry Google.")
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
