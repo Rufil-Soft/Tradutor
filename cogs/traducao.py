@@ -60,6 +60,11 @@ class TranslateView(discord.ui.View):
                             GoogleTranslator(source='auto', target=user_locale).translate,
                             dados["original"]
                         )
+                        # Validação: descarta respostas que contenham erros da API
+                        if translated and ("Error" in translated or "error" in translated.lower()):
+                            print(f"[TRADUTOR] API retornou erro: {translated}")
+                            translated = None
+
                         if translated:
                             translation_cache[cache_key] = translated
                     except Exception as e:
