@@ -6,6 +6,7 @@ from discord.ext import commands
 from cogs.traducao import TranslateView, registar_mensagem
 from groq import AsyncGroq
 
+# Mantém a lista original de frases
 FRASES_EN = [
     "Speak, consigliere. The herb is cured and business is booming.",
     "In the mafia, cannabis is like loyalty: it only blooms when well cultivated.",
@@ -89,7 +90,7 @@ class Frases(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.groq_client = None
-        self.groq_model = "openai/gpt-oss-20b"
+        self.groq_model = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
         self._init_groq()
 
     def _init_groq(self):
@@ -100,8 +101,11 @@ class Frases(commands.Cog):
         else:
             print("[FRASES] ⚠️ GROQ_API_KEY não definida. A usar apenas frases fixas.")
 
-    async def _gerar_resposta_ia(self, mensagem_usuario: str) -> str:
+    async def _gerar_resposta_ia(self, mensagem_usuario: str) -> str | None:
         if not self.groq_client:
+            return None
+
+        if not mensagem_usuario or not mensagem_usuario.strip():
             return None
 
         exemplos = frase_manager.amostra(AMOSTRA_ESTILO)
@@ -121,19 +125,22 @@ class Frases(commands.Cog):
         )
 
         user_prompt = (
-            f"The user said: \"{mensagem_usuario}\"\n\n"
+            f"The user said: \"{mensagem_usuario.strip()}\"\n\n"
             "Respond as Aquiles, using the example style but focused on what was said."
         )
 
         try:
-            response = await self.groq_client.chat.completions.create(
-                model=self.groq_model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                max_tokens=150,
-                temperature=0.9,
+            response = await asyncio.wait_for(
+                self.groq_client.chat.completions.create(
+                    model=self.groq_model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    max_tokens=150,
+                    temperature=0.9,
+                ),
+                timeout=15
             )
             resposta_gerada = response.choices[0].message.content.strip()
             print(f"[FRASES] Resposta da IA: {resposta_gerada}")
@@ -143,41 +150,67 @@ class Frases(commands.Cog):
                 return None
             if resposta_gerada in FRASES_EN:
                 return None
+            if len(resposta_gerada) > 500:
+                resposta_gerada = resposta_gerada[:497] + "..."
             return resposta_gerada
         except Exception as e:
             print(f"[FRASES] Erro na API Groq: {e}")
             return None
+
+    def _limpar_mencao(self, conteudo: str) -> str:
+        """Remove menções do bot antes de enviar para a IA."""
+        texto = conteudo
+
+        # Menção clássica <@ID> ou <@!ID>
+        if self.bot.user:
+            for mention in (
+                f"<@{self.bot.user.id}>",
+                f"<@!{self.bot.user.id}>",
+                self.bot.user.mention
+            ):
+                texto = texto.replace(mention, "")
+
+        return texto.strip()
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         if message.author.bot:
             return
 
-        if self.bot.user in message.mentions:
-            try:
-                await message.delete()
-            except discord.Forbidden:
-                pass
+        if not self.bot.user or self.bot.user not in message.mentions:
+            return
 
-            conteudo_formatado = f"<@{message.author.id}>: {message.content}"
-            files = [await a.to_file() for a in message.attachments]
-            msg_echo = await message.channel.send(
-                content=conteudo_formatado,
-                files=files,
-                view=TranslateView(),
-                allowed_mentions=discord.AllowedMentions(users=False)
-            )
-            registar_mensagem(msg_echo.id, conteudo_formatado, message.content)
+        try:
+            await message.delete()
+        except discord.Forbidden:
+            pass
 
-            resposta = await self._gerar_resposta_ia(message.content)
+        conteudo_formatado = f"<@{message.author.id}>: {message.content}"
+        files = [await a.to_file() for a in message.attachments]
+        msg_echo = await message.channel.send(
+            content=conteudo_formatado,
+            files=files,
+            view=TranslateView(),
+            allowed_mentions=discord.AllowedMentions(users=False)
+        )
+        registar_mensagem(msg_echo.id, conteudo_formatado, message.content)
+
+        # Usa o texto sem a menção ao bot para a IA
+        texto_para_ia = self._limpar_mencao(message.content)
+
+        # Se não houver texto relevante, usa frase fixa diretamente
+        if not texto_para_ia:
+            resposta = frase_manager.next()
+        else:
+            resposta = await self._gerar_resposta_ia(texto_para_ia)
             if not resposta:
                 resposta = frase_manager.next()
 
-            async with message.channel.typing():
-                await asyncio.sleep(1)
-                base_resposta = f"💬 {resposta}"
-                msg_resposta = await message.channel.send(base_resposta, view=TranslateView())
-                registar_mensagem(msg_resposta.id, base_resposta, resposta)
+        async with message.channel.typing():
+            await asyncio.sleep(1)
+            base_resposta = f"💬 {resposta}"
+            msg_resposta = await message.channel.send(base_resposta, view=TranslateView())
+            registar_mensagem(msg_resposta.id, base_resposta, resposta)
 
     @commands.command(name="frase")
     async def frase(self, ctx):
