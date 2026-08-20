@@ -1,7 +1,7 @@
 import asyncio
 import discord
 from discord.ext import commands
-from deep_translator import GoogleTranslator
+from deep_translator import GoogleTranslator, MyMemoryTranslator
 
 translation_cache = {}
 mensagens_dados = {}
@@ -41,9 +41,8 @@ class TranslateView(discord.ui.View):
 
         lock = mensagens_locks.setdefault(message.id, asyncio.Lock())
         async with lock:
-            # Se a tradução já existe, apenas a colocamos como a mais recente (mostrada)
+            # Se já existir, apenas move para o fim da ordem
             if user_locale in dados["traducoes"]:
-                # Move o idioma para o fim da ordem
                 if user_locale in dados["ordem_insercao"]:
                     dados["ordem_insercao"].remove(user_locale)
                 dados["ordem_insercao"].append(user_locale)
@@ -55,21 +54,48 @@ class TranslateView(discord.ui.View):
                 if cache_key in translation_cache:
                     translated = translation_cache[cache_key]
                 else:
+                    # --- Tenta Google, com retry e fallback para MyMemory ---
+                    translated = None
+
+                    # 1ª tentativa: Google
                     try:
                         translated = await asyncio.to_thread(
                             GoogleTranslator(source='auto', target=user_locale).translate,
                             dados["original"]
                         )
-                        # Validação: descarta respostas que contenham erros da API
-                        if translated and ("Error" in translated or "error" in translated.lower()):
-                            print(f"[TRADUTOR] API retornou erro: {translated}")
+                    except Exception:
+                        translated = None
+
+                    # Se veio com erro, tenta uma 2ª vez após 1s
+                    if translated and ("Error" in translated or "error" in translated.lower()):
+                        print(f"[TRADUTOR] Google devolveu erro, tentando novamente...")
+                        await asyncio.sleep(1)
+                        try:
+                            translated = await asyncio.to_thread(
+                                GoogleTranslator(source='auto', target=user_locale).translate,
+                                dados["original"]
+                            )
+                        except Exception:
                             translated = None
 
-                        if translated:
-                            translation_cache[cache_key] = translated
-                    except Exception as e:
-                        print(f"[TRADUTOR] Erro na tradução: {e}")
+                    # Fallback para MyMemory se Google falhar
+                    if not translated or "Error" in translated or "error" in translated.lower():
+                        print("[TRADUTOR] Google indisponível, a usar MyMemory...")
+                        try:
+                            translated = await asyncio.to_thread(
+                                MyMemoryTranslator(source='auto', target=user_locale).translate,
+                                dados["original"]
+                            )
+                        except Exception as e:
+                            print(f"[TRADUTOR] MyMemory falhou: {e}")
+                            translated = None
+
+                    # Validação final
+                    if translated and ("Error" in translated or "error" in translated.lower()):
                         translated = None
+
+                    if translated:
+                        translation_cache[cache_key] = translated
 
                 if not translated:
                     try:
@@ -81,14 +107,10 @@ class TranslateView(discord.ui.View):
                 dados["traducoes"][user_locale] = translated
                 dados["ordem_insercao"].append(user_locale)
 
-            # Se tivermos mais do que MAX_VISIVEIS, manter apenas os últimos MAX_VISIVEIS na ordem de exibição
-            # (mas os dados continuam guardados, apenas não são mostrados)
+            # Limita número de traduções visíveis
             while len(dados["ordem_insercao"]) > MAX_VISIVEIS:
-                # Remove o idioma mais antigo da ordem de exibição
-                old = dados["ordem_insercao"].pop(0)
-                # Não apagamos do dicionário, apenas da ordem; assim a tradução não se perde
+                dados["ordem_insercao"].pop(0)
 
-            # Construir as linhas de tradução apenas com os idiomas na ordem_insercao
             linhas_traducao = "\n".join(
                 f"🌍 {lang.upper()}: {dados['traducoes'][lang]}" for lang in dados["ordem_insercao"]
             )
@@ -102,7 +124,7 @@ class TranslateView(discord.ui.View):
 class Traducao(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        print("[TRADUÇÃO] Cog carregado — traduções acumuladas com limite visual.")
+        print("[TRADUÇÃO] Cog carregado — com fallback MyMemory e retry Google.")
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -121,7 +143,7 @@ class Traducao(commands.Cog):
             files = [await a.to_file() for a in message.attachments]
 
             await message.delete()
-            await asyncio.sleep(0.3)  # dá tempo ao Discord para processar a eliminação
+            await asyncio.sleep(0.3)
 
             msg_enviada = await message.channel.send(
                 content=conteudo_formatado,
@@ -131,7 +153,6 @@ class Traducao(commands.Cog):
             )
             registar_mensagem(msg_enviada.id, conteudo_formatado, texto_original)
         except discord.Forbidden:
-            # Se não pode apagar, não republica – evita duplicação
             pass
         except Exception as e:
             print(f"[TRADUÇÃO] Erro ao processar mensagem limpa: {e}")
