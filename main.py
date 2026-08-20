@@ -10,10 +10,12 @@ from servidor_dummy import start_dummy_server
 
 # ---------- ANTI‑RATE‑LIMIT ----------
 LAST_LOGIN_FILE = "last_login.txt"
-MIN_LOGIN_INTERVAL = 60  # segundos
+MIN_LOGIN_INTERVAL = 60          # segundos entre arranques
+MAX_LOGIN_ATTEMPTS = 3           # nº máximo de tentativas de login
+RETRY_DELAY = 15 * 60            # 15 minutos entre tentativas após 429
 
 def wait_for_login_cooldown():
-    """Se o bot tentou iniciar há menos de MIN_LOGIN_INTERVAL segundos, espera."""
+    """Espera se a última tentativa de login foi há menos de MIN_LOGIN_INTERVAL."""
     if os.path.exists(LAST_LOGIN_FILE):
         try:
             with open(LAST_LOGIN_FILE, "r") as f:
@@ -21,18 +23,18 @@ def wait_for_login_cooldown():
             elapsed = time.time() - last_timestamp
             if elapsed < MIN_LOGIN_INTERVAL:
                 wait_time = MIN_LOGIN_INTERVAL - elapsed
-                print(f"[ANTI-RATE] Último login há {elapsed:.0f}s. Aguardando {wait_time:.0f}s...")
+                print(f"[ANTI-RATE] Última tentativa há {elapsed:.0f}s. Aguardando {wait_time:.0f}s...")
                 time.sleep(wait_time)
         except Exception as e:
             print(f"[ANTI-RATE] Erro ao ler ficheiro de login: {e}")
 
 def update_last_login():
-    """Guarda o timestamp atual no ficheiro."""
+    """Guarda o timestamp actual da tentativa de login."""
     with open(LAST_LOGIN_FILE, "w") as f:
         f.write(str(time.time()))
 # ------------------------------------
 
-# Lista de cogs a carregar (nomes dos módulos dentro da pasta cogs)
+# Lista de cogs a carregar
 COGS = [
     "cogs.traducao",
     "cogs.votacoes",
@@ -51,6 +53,25 @@ async def load_extensions():
         except Exception as e:
             print(f"[ERRO] Falha ao carregar '{ext}': {type(e).__name__}: {e}")
             traceback.print_exc()
+
+async def start_bot_with_retry(token: str):
+    """Tenta iniciar o bot até MAX_LOGIN_ATTEMPTS vezes, esperando RETRY_DELAY entre tentativas em caso de 429."""
+    for attempt in range(1, MAX_LOGIN_ATTEMPTS + 1):
+        update_last_login()  # regista a hora desta tentativa
+        print(f"[LOGIN] Tentativa {attempt} de {MAX_LOGIN_ATTEMPTS}...")
+        try:
+            await bot.start(token)
+            return  # sucesso! O bot permanece em execução
+        except discord.HTTPException as e:
+            if e.status == 429 and attempt < MAX_LOGIN_ATTEMPTS:
+                print(f"[LOGIN] Erro 429 Too Many Requests. Aguardando {RETRY_DELAY // 60} minutos antes da próxima tentativa...")
+                await asyncio.sleep(RETRY_DELAY)
+            else:
+                print(f"[LOGIN] Falha final: {e}")
+                raise
+        except Exception as e:
+            print(f"[LOGIN] Erro inesperado: {e}")
+            raise
 
 @bot.tree.command(name="restart", description="Reinicia a sessão do bot (Apenas Administradores).")
 @app_commands.checks.has_permissions(administrator=True)
@@ -75,9 +96,8 @@ async def main():
         print("ERRO CRÍTICO: Variável de ambiente DISCORD_TOKEN não definida.")
         return
     await start_dummy_server()
-    wait_for_login_cooldown()
-    update_last_login()
-    await bot.start(token)
+    wait_for_login_cooldown()   # espera mínima entre arranques
+    await start_bot_with_retry(token)
 
 if __name__ == "__main__":
     asyncio.run(main())
