@@ -92,7 +92,7 @@ class Frases(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.groq_client = None
-        self.groq_model = "llama-3.1-8b-instant"
+        self.groq_model = "openai/gpt-oss-20b"
         self._init_groq()
 
     def _init_groq(self):
