@@ -8,6 +8,20 @@ mensagens_dados = {}
 mensagens_locks = {}
 MAX_VISIVEIS = 4  # número máximo de traduções visíveis na mensagem
 
+# Mapeamento para idiomas que o MyMemory exige em formato completo
+MYMEMORY_LANG_MAP = {
+    "pt": "pt-PT",
+    "en": "en-GB",
+    "es": "es-ES",
+    "fr": "fr-FR",
+    "de": "de-DE",
+    "it": "it-IT",
+    "ru": "ru-RU",
+    "ar": "ar-SA",
+    "ja": "ja-JP",
+    "ko": "ko-KR",
+    "zh": "zh-CN",
+}
 
 def registar_mensagem(message_id: int, base: str, original: str):
     mensagens_dados[message_id] = {
@@ -41,7 +55,7 @@ class TranslateView(discord.ui.View):
 
         lock = mensagens_locks.setdefault(message.id, asyncio.Lock())
         async with lock:
-            # Se já existir, apenas move para o fim da ordem
+            # Se a tradução já existe, apenas a colocamos como a mais recente (mostrada)
             if user_locale in dados["traducoes"]:
                 if user_locale in dados["ordem_insercao"]:
                     dados["ordem_insercao"].remove(user_locale)
@@ -54,7 +68,7 @@ class TranslateView(discord.ui.View):
                 if cache_key in translation_cache:
                     translated = translation_cache[cache_key]
                 else:
-                    # --- Tenta Google, com retry e fallback para MyMemory ---
+                    # --- Tenta Google, com retry ---
                     translated = None
 
                     # 1ª tentativa: Google
@@ -68,7 +82,6 @@ class TranslateView(discord.ui.View):
 
                     # Se veio com erro, tenta uma 2ª vez após 1s
                     if translated and ("Error" in translated or "error" in translated.lower()):
-                        print(f"[TRADUTOR] Google devolveu erro, tentando novamente...")
                         await asyncio.sleep(1)
                         try:
                             translated = await asyncio.to_thread(
@@ -81,9 +94,11 @@ class TranslateView(discord.ui.View):
                     # Fallback para MyMemory se Google falhar
                     if not translated or "Error" in translated or "error" in translated.lower():
                         print("[TRADUTOR] Google indisponível, a usar MyMemory...")
+                        # Usar o código de idioma correto para o MyMemory
+                        target_my = MYMEMORY_LANG_MAP.get(user_locale, user_locale)
                         try:
                             translated = await asyncio.to_thread(
-                                MyMemoryTranslator(source='auto', target=user_locale).translate,
+                                MyMemoryTranslator(source='auto', target=target_my).translate,
                                 dados["original"]
                             )
                         except Exception as e:
@@ -107,7 +122,7 @@ class TranslateView(discord.ui.View):
                 dados["traducoes"][user_locale] = translated
                 dados["ordem_insercao"].append(user_locale)
 
-            # Limita número de traduções visíveis
+            # Limita o número de traduções visíveis
             while len(dados["ordem_insercao"]) > MAX_VISIVEIS:
                 dados["ordem_insercao"].pop(0)
 
