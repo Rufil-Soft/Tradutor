@@ -41,7 +41,8 @@ COGS = [
     "cogs.paineis",
     "cogs.comandos_setup",
     "cogs.admin",
-    "cogs.frases",    
+    "cogs.frases",
+    "cogs.audio",
 ]
 
 async def load_extensions():
