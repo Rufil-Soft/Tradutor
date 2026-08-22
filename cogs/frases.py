@@ -133,25 +133,41 @@ class Frases(commands.Cog):
             "Respond as Aquiles."
         )
 
-        try:
-            response = await self.groq_client.chat.completions.create(
-                model=self.groq_model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                max_tokens=150,
-                temperature=0.9,
-            )
-            resposta_gerada = response.choices[0].message.content.strip()
-            print(f"[FRASES] Resposta da IA: {resposta_gerada}")
+        # Modelos a tentar por ordem (se um devolver vazio, tentamos o próximo)
+        modelos = [
+            self.groq_model,             # "openai/gpt-oss-20b"
+            "openai/gpt-oss-120b",       # alternativa mais potente
+        ]
 
-            if not resposta_gerada or resposta_gerada in FRASES_EN:
-                return None
-            return resposta_gerada
-        except Exception as e:
-            print(f"[FRASES] Erro na API Groq: {e}")
-            return None
+        for modelo in modelos:
+            try:
+                response = await self.groq_client.chat.completions.create(
+                    model=modelo,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    max_tokens=150,
+                    temperature=0.85,
+                )
+                # Log do objeto de resposta para depuração
+                print(f"[FRASES] Modelo: {modelo}")
+                print(f"[FRASES] Finish reason: {response.choices[0].finish_reason}")
+
+                resposta_gerada = response.choices[0].message.content
+                print(f"[FRASES] Conteúdo bruto: {resposta_gerada!r}")
+
+                if resposta_gerada:
+                    resposta_gerada = resposta_gerada.strip()
+                    if resposta_gerada and resposta_gerada not in FRASES_EN:
+                        print(f"[FRASES] Resposta da IA: {resposta_gerada}")
+                        return resposta_gerada
+
+                print(f"[FRASES] Modelo {modelo} devolveu vazio ou frase fixa. Tentando próximo...")
+            except Exception as e:
+                print(f"[FRASES] Erro na API Groq com modelo {modelo}: {e}")
+
+        return None
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
