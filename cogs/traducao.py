@@ -138,6 +138,8 @@ class Traducao(commands.Cog):
     async def on_message(self, message: discord.Message):
         if message.author.bot or not message.content:
             return
+        if message.attachments:               # <-- NOVO: ignora mensagens com anexos (áudio, imagens, etc.)
+            return
         if message.content.startswith(self.bot.command_prefix):
             return
         if message.channel.name == "🎯-capos-message":
