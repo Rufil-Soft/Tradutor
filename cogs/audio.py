@@ -27,16 +27,28 @@ class Audio(commands.Cog):
         if not self.groq_client:
             return None
 
+        # Garantir que a extensão é reconhecida
+        if not filename.lower().endswith((".ogg", ".mp3", ".wav", ".mp4", ".m4a", ".webm", ".flac")):
+            filename += ".ogg"
+
+        # Criar um objeto BytesIO e posicionar no início
         audio_file = io.BytesIO(audio_bytes)
-        audio_file.name = filename  # importante para a API reconhecer o formato
+        audio_file.seek(0)
+        audio_file.name = filename
+
+        print(f"[AUDIO] Processando áudio: {filename} ({len(audio_bytes)} bytes)")
 
         try:
             transcription = await self.groq_client.audio.transcriptions.create(
-                model="whisper-large-v3-turbo",   # rápido e preciso
+                model="whisper-large-v3-turbo",
                 file=audio_file,
                 response_format="text"
             )
-            return transcription.strip()
+            # Se a transcrição for uma string ou tiver .text
+            texto = transcription if isinstance(transcription, str) else transcription.text
+            texto = texto.strip()
+            print(f"[AUDIO] Transcrição recebida: {texto!r}")
+            return texto
         except Exception as e:
             print(f"[AUDIO] Erro na transcrição: {e}")
             return None
@@ -46,27 +58,32 @@ class Audio(commands.Cog):
         if message.author.bot:
             return
 
-        # Verifica se a mensagem contém algum anexo de áudio
         if not message.attachments:
             return
 
         attachment = message.attachments[0]
-        if not (attachment.content_type or "").startswith("audio/"):
-            return
+        content_type = attachment.content_type or ""
+        if not content_type.startswith("audio/"):
+            # Verifica também pela extensão do ficheiro
+            if not attachment.filename.lower().endswith((".ogg", ".mp3", ".wav", ".mp4", ".m4a", ".webm", ".flac")):
+                return
 
-        # Limite de tamanho (opcional, evita abusos)
+        print(f"[AUDIO] Mensagem de voz detectada: {attachment.filename} ({attachment.size} bytes, tipo: {content_type})")
+
+        # Limite de tamanho (10 MB)
         if attachment.size > 10 * 1024 * 1024:
             await message.channel.send("❌ O áudio é muito grande para transcrição.", delete_after=10)
             return
 
-        # Descarrega o áudio
+        # Baixar o áudio
         try:
             audio_bytes = await attachment.read()
+            print(f"[AUDIO] Áudio baixado: {len(audio_bytes)} bytes")
         except Exception as e:
             print(f"[AUDIO] Erro ao baixar áudio: {e}")
             return
 
-        # Transcreve
+        # Transcrever
         transcricao = await self.transcrever_audio(audio_bytes, attachment.filename)
         if not transcricao:
             await message.channel.send("❌ Não foi possível transcrever o áudio.", delete_after=10)
@@ -87,6 +104,7 @@ class Audio(commands.Cog):
                 allowed_mentions=discord.AllowedMentions(users=False)
             )
             registar_mensagem(msg_enviada.id, conteudo_formatado, transcricao)
+            print(f"[AUDIO] Mensagem de voz transcrita e republicada para {message.author.display_name}.")
         except Exception as e:
             print(f"[AUDIO] Erro ao republicar transcrição: {e}")
 
