@@ -128,15 +128,38 @@ class TranslateView(discord.ui.View):
 class Traducao(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self.delete_lock = asyncio.Lock()  # serializa as eliminações para evitar rate limit
         print("[TRADUÇÃO] Cog carregado — com fallback MyMemory e retry Google.")
+
+    async def apagar_com_retry(self, message: discord.Message, tentativas: int = 3) -> bool:
+        """Tenta apagar a mensagem original com backoff em caso de rate limit."""
+        async with self.delete_lock:
+            for i in range(tentativas):
+                try:
+                    await message.delete()
+                    return True
+                except discord.HTTPException as e:
+                    if e.status == 429 and i < tentativas - 1:
+                        retry_after = getattr(e, 'retry_after', 1.0)
+                        await asyncio.sleep(retry_after + 0.5)
+                        continue
+                    else:
+                        print(f"[TRADUÇÃO] Falha ao apagar mensagem {message.id}: {e}")
+                        return False
+                except discord.Forbidden:
+                    print(f"[TRADUÇÃO] Sem permissão para apagar a mensagem {message.id}")
+                    return False
+            return False
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         if message.author.bot or not message.content:
             return
+
+        # Ignorar mensagens com anexos (para não conflituar com audio.py)
         if message.attachments:
-            # Permitir anexos, mas manter a lógica de tradução apenas para o texto
-            pass
+            return
+
         if message.content.startswith(self.bot.command_prefix):
             return
         if message.channel.name == "🎯-capos-message":
@@ -144,25 +167,25 @@ class Traducao(commands.Cog):
         if self.bot.user in message.mentions:
             return
 
+        conteudo_formatado = f"<@{message.author.id}>: {message.content}"
+        texto_original = message.content
+
+        # Apagar a original COM RETRY — se falhar, NÃO envia a republicação
+        sucesso = await self.apagar_com_retry(message)
+        if not sucesso:
+            return  # evita duplicação
+
+        await asyncio.sleep(0.3)
+
         try:
-            conteudo_formatado = f"<@{message.author.id}>: {message.content}"
-            texto_original = message.content
-            files = [await a.to_file() for a in message.attachments]
-
-            await message.delete()
-            await asyncio.sleep(0.3)
-
             msg_enviada = await message.channel.send(
                 content=conteudo_formatado,
-                files=files,
                 view=TranslateView(),
                 allowed_mentions=discord.AllowedMentions(users=False)
             )
             registar_mensagem(msg_enviada.id, conteudo_formatado, texto_original)
-        except discord.Forbidden:
-            pass
         except Exception as e:
-            print(f"[TRADUÇÃO] Erro ao processar mensagem limpa: {e}")
+            print(f"[TRADUÇÃO] Erro ao enviar mensagem republicada: {e}")
 
 async def setup(bot: commands.Bot):
     bot.add_view(TranslateView())
