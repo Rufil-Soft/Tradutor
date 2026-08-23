@@ -17,14 +17,12 @@ def registar_mensagem(message_id: int, base: str, original: str):
         "ordem_insercao": []     # lista de idiomas por ordem de clique (último no fim)
     }
 
-
 def detectar_idioma(texto: str) -> str:
     """Deteta o idioma do texto e devolve o código ISO (ex: 'en', 'pt', 'es')."""
     try:
         return detect(texto)
     except LangDetectException:
         return "en"  # fallback para inglês
-
 
 class TranslateView(discord.ui.View):
     def __init__(self):
@@ -90,7 +88,6 @@ class TranslateView(discord.ui.View):
                         print("[TRADUTOR] Google indisponível, a usar MyMemory...")
                         try:
                             source_lang = detectar_idioma(dados["original"])
-                            # MyMemory não aceita 'auto', portanto usamos o idioma detetado
                             translated = await asyncio.to_thread(
                                 MyMemoryTranslator(source=source_lang, target=user_locale_full).translate,
                                 dados["original"]
@@ -128,7 +125,6 @@ class TranslateView(discord.ui.View):
             except discord.HTTPException as e:
                 print(f"[TRADUTOR] Erro ao editar mensagem: {e}")
 
-
 class Traducao(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -138,8 +134,9 @@ class Traducao(commands.Cog):
     async def on_message(self, message: discord.Message):
         if message.author.bot or not message.content:
             return
-        if message.attachments:               # <-- NOVO: ignora mensagens com anexos (áudio, imagens, etc.)
-            return
+        if message.attachments:
+            # Permitir anexos, mas manter a lógica de tradução apenas para o texto
+            pass
         if message.content.startswith(self.bot.command_prefix):
             return
         if message.channel.name == "🎯-capos-message":
@@ -166,7 +163,6 @@ class Traducao(commands.Cog):
             pass
         except Exception as e:
             print(f"[TRADUÇÃO] Erro ao processar mensagem limpa: {e}")
-
 
 async def setup(bot: commands.Bot):
     bot.add_view(TranslateView())
