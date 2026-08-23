@@ -10,7 +10,7 @@ mensagens_dados = {}
 mensagens_locks = {}
 MAX_VISIVEIS = 4
 mensagens_processadas = {}  # {message_id: timestamp}
-PROCESS_EXPIRY = 60  # segundos para considerar a mensagem já processada
+PROCESS_EXPIRY = 60
 
 def registar_mensagem(message_id: int, base: str, original: str):
     mensagens_dados[message_id] = {
@@ -21,7 +21,6 @@ def registar_mensagem(message_id: int, base: str, original: str):
     }
 
 def detectar_idioma(texto: str) -> str:
-    """Deteta o idioma do texto e devolve o código ISO (ex: 'en', 'pt', 'es')."""
     try:
         return detect(texto)
     except LangDetectException:
@@ -128,7 +127,6 @@ class Traducao(commands.Cog):
         print("[TRADUÇÃO] Cog carregado — com fallback MyMemory, retry Google e anti-duplicação.")
 
     async def apagar_com_retry(self, message: discord.Message, tentativas: int = 3) -> bool:
-        """Tenta apagar a mensagem com backoff em caso de rate limit."""
         async with self.delete_lock:
             for i in range(tentativas):
                 try:
@@ -170,7 +168,7 @@ class Traducao(commands.Cog):
         if self.bot.user in message.mentions:
             return
 
-        # Proteção contra processamento duplicado da mesma mensagem
+        # Proteção contra processamento duplicado
         agora = time.time()
         ultimo = mensagens_processadas.get(message.id)
         if ultimo and (agora - ultimo) < PROCESS_EXPIRY:
@@ -205,13 +203,14 @@ class Traducao(commands.Cog):
             mensagens_processadas.pop(message.id, None)
             return
 
-        # Sucesso: regista a republicação no dicionário de traduções
+        # Sucesso: regista a republicação
         registar_mensagem(msg_enviada.id, conteudo_formatado, texto_original)
 
-        # Limpeza periódica do cache de processadas
+        # Limpeza periódica do cache (sem reatribuir a variável global)
         if len(mensagens_processadas) > 1000:
-            limite = agora - PROCESS_EXPIRY * 2
-            mensagens_processadas = {k: v for k, v in mensagens_processadas.items() if v > limite}
+            chaves_expirar = [k for k, v in mensagens_processadas.items() if v < agora - PROCESS_EXPIRY * 2]
+            for k in chaves_expirar:
+                mensagens_processadas.pop(k, None)
 
 async def setup(bot: commands.Bot):
     bot.add_view(TranslateView())
