@@ -26,6 +26,19 @@ def detectar_idioma(texto: str) -> str:
     except LangDetectException:
         return "en"
 
+def e_traducao_valida(texto: str) -> bool:
+    """Verifica se o texto não é um erro da API de tradução."""
+    if not texto:
+        return False
+    t = texto.strip().lower()
+    # Se começar por "error" ou "erro", é muito provável ser uma página de erro
+    if t.startswith("error") or t.startswith("erro"):
+        return False
+    # Se contiver códigos de erro HTTP e palavras-chave de erro
+    if ("error" in t and "server" in t) or ("error" in t and "try again" in t):
+        return False
+    return True
+
 class TranslateView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -44,10 +57,9 @@ class TranslateView(discord.ui.View):
             await interaction.response.send_message("Não há texto para traduzir.", ephemeral=True)
             return
 
-        # Tratamento seguro do locale
         locale_str = str(interaction.locale or "pt-PT")
         user_locale_short = locale_str.split("-")[0].lower()
-        user_locale_full = locale_str  # ex: "pt-BR", "en-US"
+        user_locale_full = locale_str
 
         lock = mensagens_locks.setdefault(message.id, asyncio.Lock())
         async with lock:
@@ -71,46 +83,44 @@ class TranslateView(discord.ui.View):
                             GoogleTranslator(source='auto', target=user_locale_short).translate,
                             dados["original"]
                         )
-                        print(f"[TRADUTOR] Google traduziu: {translated!r}")
-                        # Se começar com "Error:" (sem maiúsculas/minúsculas), trata como erro
-                        if translated and translated.lower().startswith("error:"):
+                        print(f"[TRADUTOR] Google retornou: {translated!r}")
+                        if not e_traducao_valida(translated):
+                            print("[TRADUTOR] Google devolveu erro, a tentar MyMemory...")
                             translated = None
                     except Exception as e:
                         print(f"[TRADUTOR] Google falhou: {e}")
                         translated = None
 
-                    # 2ª tentativa: MyMemory com source='auto'
+                    # 2ª tentativa: MyMemory
                     if not translated:
-                        print("[TRADUTOR] Google indisponível, a tentar MyMemory...")
                         try:
                             translated = await asyncio.to_thread(
                                 MyMemoryTranslator(source='auto', target=user_locale_full).translate,
                                 dados["original"]
                             )
-                            print(f"[TRADUTOR] MyMemory traduziu: {translated!r}")
-                            # Se começar com "Error:" (sem maiúsculas/minúsculas), trata como erro
-                            if translated and translated.lower().startswith("error:"):
+                            print(f"[TRADUTOR] MyMemory retornou: {translated!r}")
+                            if not e_traducao_valida(translated):
+                                print("[TRADUTOR] MyMemory devolveu erro, a tentar Google novamente...")
                                 translated = None
                         except Exception as e:
                             print(f"[TRADUTOR] MyMemory falhou: {e}")
                             translated = None
 
-                    # Se ainda não temos tradução, tentar Google novamente (retry)
+                    # 3ª tentativa: Google (retry)
                     if not translated:
-                        print("[TRADUTOR] Tentando Google novamente após falhas...")
                         try:
                             translated = await asyncio.to_thread(
                                 GoogleTranslator(source='auto', target=user_locale_short).translate,
                                 dados["original"]
                             )
-                            print(f"[TRADUTOR] Google (retry) traduziu: {translated!r}")
-                            if translated and translated.lower().startswith("error:"):
+                            print(f"[TRADUTOR] Google (retry) retornou: {translated!r}")
+                            if not e_traducao_valida(translated):
                                 translated = None
                         except Exception as e:
                             print(f"[TRADUTOR] Google (retry) falhou: {e}")
                             translated = None
 
-                    if translated:
+                    if translated and e_traducao_valida(translated):
                         translation_cache[cache_key] = translated
 
                 if not translated:
@@ -142,7 +152,7 @@ class Traducao(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.delete_lock = asyncio.Lock()
-        print("[TRADUÇÃO] Cog carregado — com logs detalhados de tradução.")
+        print("[TRADUÇÃO] Cog carregado — com validação robusta de erros de tradução.")
 
     async def apagar_com_retry(self, message: discord.Message, tentativas: int = 3) -> bool:
         async with self.delete_lock:
@@ -166,65 +176,48 @@ class Traducao(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        # Ignorar bots e mensagens vazias
         if message.author.bot or not message.content:
             return
-
-        # Ignorar anexos (áudio, imagens, etc.)
         if message.attachments:
             return
-
-        # Ignorar comandos
         if message.content.startswith(self.bot.command_prefix):
             return
-
-        # Ignorar canal específico
         if message.channel.name == "🎯-capos-message":
             return
-
-        # Ignorar menções ao bot (para não conflituar com frases.py)
         if self.bot.user in message.mentions:
             return
 
-        # Proteção contra processamento duplicado
         agora = time.time()
         ultimo = mensagens_processadas.get(message.id)
         if ultimo and (agora - ultimo) < PROCESS_EXPIRY:
-            print(f"[TRADUÇÃO] Mensagem {message.id} já processada recentemente, ignorando.")
             return
         mensagens_processadas[message.id] = agora
 
         conteudo_formatado = f"<@{message.author.id}>: {message.content}"
         texto_original = message.content
 
-        # 1º envia a republicação
         try:
             msg_enviada = await message.channel.send(
                 content=conteudo_formatado,
                 view=TranslateView(),
                 allowed_mentions=discord.AllowedMentions(users=False)
             )
-            print(f"[TRADUÇÃO] Republicação enviada (ID: {msg_enviada.id})")
         except Exception as e:
             print(f"[TRADUÇÃO] Erro ao enviar republicação: {e}")
             mensagens_processadas.pop(message.id, None)
             return
 
-        # 2º tenta apagar a original
         sucesso = await self.apagar_com_retry(message)
         if not sucesso:
-            print(f"[TRADUÇÃO] Não consegui apagar a original {message.id}, apagando a republicação {msg_enviada.id}")
             try:
                 await msg_enviada.delete()
             except Exception as e:
-                print(f"[TRADUÇÃO] Erro ao apagar republicação {msg_enviada.id}: {e}")
+                print(f"[TRADUÇÃO] Erro ao apagar republicação: {e}")
             mensagens_processadas.pop(message.id, None)
             return
 
-        # Sucesso: regista a republicação
         registar_mensagem(msg_enviada.id, conteudo_formatado, texto_original)
 
-        # Limpeza periódica do cache
         if len(mensagens_processadas) > 1000:
             chaves_expirar = [k for k, v in mensagens_processadas.items() if v < agora - PROCESS_EXPIRY * 2]
             for k in chaves_expirar:
