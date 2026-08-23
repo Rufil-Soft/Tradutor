@@ -60,9 +60,7 @@ FRASES_EN = [
     "Judgment day has come: we decide the best strain of the month."
 ]
 
-# Quantas frases de exemplo mostrar à IA por chamada (estilo/voz), rotativas.
 AMOSTRA_ESTILO = 6
-
 
 class FraseManager:
     def __init__(self, frases):
@@ -83,15 +81,14 @@ class FraseManager:
         k = min(k, len(self._frases))
         return random.sample(self._frases, k)
 
-
 frase_manager = FraseManager(FRASES_EN)
-
 
 class Frases(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.groq_client = None
         self.groq_model = "openai/gpt-oss-20b"
+        self.delete_lock = asyncio.Lock()  # novo
         self._init_groq()
 
     def _init_groq(self):
@@ -102,11 +99,31 @@ class Frases(commands.Cog):
         else:
             print("[FRASES] ⚠️ GROQ_API_KEY não definida. A usar apenas frases fixas.")
 
+    async def apagar_com_retry(self, message: discord.Message, tentativas: int = 3) -> bool:
+        """Tenta apagar a mensagem com backoff em caso de rate limit."""
+        async with self.delete_lock:
+            for i in range(tentativas):
+                try:
+                    await message.delete()
+                    return True
+                except discord.HTTPException as e:
+                    if e.status == 429 and i < tentativas - 1:
+                        retry_after = getattr(e, 'retry_after', 1.0)
+                        print(f"[FRASES] Rate limit ao apagar {message.id}, retry em {retry_after:.2f}s")
+                        await asyncio.sleep(retry_after + 0.5)
+                        continue
+                    else:
+                        print(f"[FRASES] Falha ao apagar mensagem {message.id}: {e}")
+                        return False
+                except discord.Forbidden:
+                    print(f"[FRASES] Sem permissão para apagar {message.id}")
+                    return False
+            return False
+
     async def _gerar_resposta_ia(self, mensagem_usuario: str) -> str:
         if not self.groq_client:
             return None
 
-        # Remove a menção ao bot (ex.: "<@1532232748289364148> Como estás?" -> "Como estás?")
         texto_limpo = re.sub(r"<@!?[0-9]+>", "", mensagem_usuario).strip()
         if not texto_limpo:
             texto_limpo = mensagem_usuario
@@ -133,10 +150,9 @@ class Frases(commands.Cog):
             "Respond as Aquiles."
         )
 
-        # Modelos a tentar por ordem (se um devolver vazio, tentamos o próximo)
         modelos = [
-            self.groq_model,             # "openai/gpt-oss-20b"
-            "openai/gpt-oss-120b",       # alternativa mais potente
+            self.groq_model,
+            "openai/gpt-oss-120b",
         ]
 
         for modelo in modelos:
@@ -150,7 +166,6 @@ class Frases(commands.Cog):
                     max_tokens=150,
                     temperature=0.85,
                 )
-                # Log do objeto de resposta para depuração
                 print(f"[FRASES] Modelo: {modelo}")
                 print(f"[FRASES] Finish reason: {response.choices[0].finish_reason}")
 
@@ -175,30 +190,43 @@ class Frases(commands.Cog):
             return
 
         if self.bot.user in message.mentions:
-            try:
-                await message.delete()
-            except discord.Forbidden:
-                pass
-
             conteudo_formatado = f"<@{message.author.id}>: {message.content}"
-            files = [await a.to_file() for a in message.attachments]
-            msg_echo = await message.channel.send(
-                content=conteudo_formatado,
-                files=files,
-                view=TranslateView(),
-                allowed_mentions=discord.AllowedMentions(users=False)
-            )
+
+            # 1º envia o echo
+            try:
+                msg_echo = await message.channel.send(
+                    content=conteudo_formatado,
+                    files=[await a.to_file() for a in message.attachments],
+                    view=TranslateView(),
+                    allowed_mentions=discord.AllowedMentions(users=False)
+                )
+            except Exception as e:
+                print(f"[FRASES] Erro ao enviar echo: {e}")
+                return
+
+            # 2º tenta apagar a original
+            sucesso = await self.apagar_com_retry(message)
+            if not sucesso:
+                # rollback: apaga o echo para não duplicar
+                try:
+                    await msg_echo.delete()
+                except Exception as e:
+                    print(f"[FRASES] Erro ao apagar echo: {e}")
+                return
+
             registar_mensagem(msg_echo.id, conteudo_formatado, message.content)
 
+            # 3º gera resposta IA e envia
             resposta = await self._gerar_resposta_ia(message.content)
             if not resposta:
                 resposta = frase_manager.next()
 
-            async with message.channel.typing():
-                await asyncio.sleep(1)
-                base_resposta = f"💬 {resposta}"
+            base_resposta = f"💬 {resposta}"
+            try:
                 msg_resposta = await message.channel.send(base_resposta, view=TranslateView())
                 registar_mensagem(msg_resposta.id, base_resposta, resposta)
+            except Exception as e:
+                print(f"[FRASES] Erro ao enviar resposta IA: {e}")
 
     @commands.command(name="frase")
     async def frase(self, ctx):
@@ -209,13 +237,11 @@ class Frases(commands.Cog):
 
     @commands.command(name="iatest")
     async def iatest(self, ctx, *, texto: str):
-        """Testa a IA diretamente, sem fallback."""
         resposta = await self._gerar_resposta_ia(texto)
         if resposta:
             await ctx.send(f"🧠 IA: {resposta}")
         else:
             await ctx.send("❌ IA falhou ou devolveu vazio.")
-
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Frases(bot))
