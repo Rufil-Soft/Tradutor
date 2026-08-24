@@ -26,18 +26,30 @@ def detectar_idioma(texto: str) -> str:
     except LangDetectException:
         return "en"
 
+# Padrões que indicam que o "texto traduzido" é, na verdade, uma mensagem de
+# erro devolvida pela API (Google ou MyMemory) e não deve ser mostrada ao
+# utilizador como se fosse uma tradução válida.
+_PADROES_ERRO = (
+    "error",
+    "erro",
+    "invalid source language",
+    "invalid target language",
+    "no support for",
+    "please select on",
+    "query length limit",
+    "must translate",
+    "amount of translation",
+    "is an invalid",
+)
+
 def e_traducao_valida(texto: str) -> bool:
-    """Verifica se o texto não é um erro da API de tradução."""
+    """Verifica se o texto não é uma página/mensagem de erro da API de tradução."""
     if not texto:
         return False
     t = texto.strip().lower()
-    # Se começar por "error" ou "erro", é muito provável ser uma página de erro
-    if t.startswith("error") or t.startswith("erro"):
+    if not t:
         return False
-    # Se contiver códigos de erro HTTP e palavras-chave de erro
-    if ("error" in t and "server" in t) or ("error" in t and "try again" in t):
-        return False
-    return True
+    return not any(padrao in t for padrao in _PADROES_ERRO)
 
 class TranslateView(discord.ui.View):
     def __init__(self):
@@ -77,6 +89,10 @@ class TranslateView(discord.ui.View):
                 else:
                     translated = None
 
+                    # Deteta o idioma de origem uma única vez — é reutilizado
+                    # pelo MyMemory, que (ao contrário do Google) não aceita 'auto'.
+                    source_lang = None
+
                     # 1ª tentativa: Google
                     try:
                         translated = await asyncio.to_thread(
@@ -91,11 +107,12 @@ class TranslateView(discord.ui.View):
                         print(f"[TRADUTOR] Google falhou: {e}")
                         translated = None
 
-                    # 2ª tentativa: MyMemory
+                    # 2ª tentativa: MyMemory (precisa de um código de idioma real, não 'auto')
                     if not translated:
                         try:
+                            source_lang = detectar_idioma(dados["original"])
                             translated = await asyncio.to_thread(
-                                MyMemoryTranslator(source='auto', target=user_locale_full).translate,
+                                MyMemoryTranslator(source=source_lang, target=user_locale_full).translate,
                                 dados["original"]
                             )
                             print(f"[TRADUTOR] MyMemory retornou: {translated!r}")
@@ -120,8 +137,27 @@ class TranslateView(discord.ui.View):
                             print(f"[TRADUTOR] Google (retry) falhou: {e}")
                             translated = None
 
+                    # 4ª tentativa: MyMemory (retry), caso o idioma detetado à primeira
+                    # tenha sido a causa da falha (raro, mas mais barato que desistir).
+                    if not translated:
+                        try:
+                            if source_lang is None:
+                                source_lang = detectar_idioma(dados["original"])
+                            translated = await asyncio.to_thread(
+                                MyMemoryTranslator(source=source_lang, target=user_locale_full).translate,
+                                dados["original"]
+                            )
+                            print(f"[TRADUTOR] MyMemory (retry) retornou: {translated!r}")
+                            if not e_traducao_valida(translated):
+                                translated = None
+                        except Exception as e:
+                            print(f"[TRADUTOR] MyMemory (retry) falhou: {e}")
+                            translated = None
+
                     if translated and e_traducao_valida(translated):
                         translation_cache[cache_key] = translated
+                    else:
+                        translated = None
 
                 if not translated:
                     try:
@@ -152,7 +188,7 @@ class Traducao(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.delete_lock = asyncio.Lock()
-        print("[TRADUÇÃO] Cog carregado — com validação robusta de erros de tradução.")
+        print("[TRADUÇÃO] Cog carregado — com validação robusta de erros de tradução e fix MyMemory 'auto'.")
 
     async def apagar_com_retry(self, message: discord.Message, tentativas: int = 3) -> bool:
         async with self.delete_lock:
