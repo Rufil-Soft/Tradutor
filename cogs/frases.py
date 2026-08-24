@@ -62,6 +62,16 @@ FRASES_EN = [
 
 AMOSTRA_ESTILO = 6
 
+# Nº mínimo de caracteres para considerarmos uma resposta da IA "real" e não
+# um fragmento cortado a meio (ex.: "J").
+MIN_CARACTERES_RESPOSTA = 8
+# Se a geração foi cortada por limite de tokens (finish_reason == "length"),
+# exigimos um mínimo maior, porque uma resposta curta nessas condições é
+# quase sempre um fragmento incompleto e não uma frase curta intencional.
+MIN_CARACTERES_RESPOSTA_CORTADA = 30
+
+frase_manager = None  # definido abaixo, depois da classe FraseManager
+
 class FraseManager:
     def __init__(self, frases):
         self._frases = frases.copy()
@@ -83,12 +93,31 @@ class FraseManager:
 
 frase_manager = FraseManager(FRASES_EN)
 
+
+def _resposta_valida(texto: str, finish_reason: str) -> bool:
+    """Valida se o texto devolvido pela IA é uma resposta utilizável, e não um
+    fragmento truncado (ex.: 'J') resultante do modelo ficar sem tokens
+    disponíveis a meio do raciocínio interno."""
+    if not texto:
+        return False
+    texto = texto.strip()
+    if not texto:
+        return False
+    if texto in FRASES_EN:
+        return False
+    if len(texto) < MIN_CARACTERES_RESPOSTA:
+        return False
+    if finish_reason == "length" and len(texto) < MIN_CARACTERES_RESPOSTA_CORTADA:
+        return False
+    return True
+
+
 class Frases(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.groq_client = None
         self.groq_model = "openai/gpt-oss-20b"
-        self.delete_lock = asyncio.Lock()  # novo
+        self.delete_lock = asyncio.Lock()
         self._init_groq()
 
     def _init_groq(self):
@@ -163,22 +192,32 @@ class Frases(commands.Cog):
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
                     ],
-                    max_tokens=150,
+                    max_tokens=600,
                     temperature=0.85,
+                    # gpt-oss-20b/120b são modelos de raciocínio: sem isto, podem
+                    # gastar o orçamento de tokens todo a "pensar" e nunca chegar
+                    # a escrever a resposta visível (era a causa do bug do "J").
+                    reasoning_effort="low",
+                    # garante que qualquer raciocínio interno fica separado e
+                    # nunca se mistura com o texto de 'content'.
+                    reasoning_format="hidden",
                 )
+                finish_reason = response.choices[0].finish_reason
                 print(f"[FRASES] Modelo: {modelo}")
-                print(f"[FRASES] Finish reason: {response.choices[0].finish_reason}")
+                print(f"[FRASES] Finish reason: {finish_reason}")
 
                 resposta_gerada = response.choices[0].message.content
                 print(f"[FRASES] Conteúdo bruto: {resposta_gerada!r}")
 
                 if resposta_gerada:
                     resposta_gerada = resposta_gerada.strip()
-                    if resposta_gerada and resposta_gerada not in FRASES_EN:
-                        print(f"[FRASES] Resposta da IA: {resposta_gerada}")
-                        return resposta_gerada
 
-                print(f"[FRASES] Modelo {modelo} devolveu vazio ou frase fixa. Tentando próximo...")
+                if _resposta_valida(resposta_gerada, finish_reason):
+                    print(f"[FRASES] Resposta da IA: {resposta_gerada}")
+                    return resposta_gerada
+
+                print(f"[FRASES] Modelo {modelo} devolveu resposta vazia/curta/truncada "
+                      f"(finish_reason={finish_reason!r}). Tentando próximo...")
             except Exception as e:
                 print(f"[FRASES] Erro na API Groq com modelo {modelo}: {e}")
 
