@@ -5,6 +5,8 @@ from discord.ext import commands
 from deep_translator import GoogleTranslator, MyMemoryTranslator
 from langdetect import detect, LangDetectException
 
+VERBOSE_LOGS = False  # Coloca True se precisares de logs detalhados para depuração
+
 translation_cache = {}
 mensagens_dados = {}
 mensagens_locks = {}
@@ -26,9 +28,6 @@ def detectar_idioma(texto: str) -> str:
     except LangDetectException:
         return "en"
 
-# Padrões que indicam que o "texto traduzido" é, na verdade, uma mensagem de
-# erro devolvida pela API (Google ou MyMemory) e não deve ser mostrada ao
-# utilizador como se fosse uma tradução válida.
 _PADROES_ERRO = (
     "error",
     "erro",
@@ -89,38 +88,37 @@ class TranslateView(discord.ui.View):
                 else:
                     translated = None
 
-                    # Deteta o idioma de origem uma única vez — é reutilizado
-                    # pelo MyMemory, que (ao contrário do Google) não aceita 'auto'.
-                    source_lang = None
-
                     # 1ª tentativa: Google
                     try:
                         translated = await asyncio.to_thread(
                             GoogleTranslator(source='auto', target=user_locale_short).translate,
                             dados["original"]
                         )
-                        print(f"[TRADUTOR] Google retornou: {translated!r}")
+                        if VERBOSE_LOGS:
+                            print(f"[TRADUTOR] Google retornou: {translated!r}")
                         if not e_traducao_valida(translated):
                             print("[TRADUTOR] Google devolveu erro, a tentar MyMemory...")
                             translated = None
                     except Exception as e:
-                        print(f"[TRADUTOR] Google falhou: {e}")
+                        print(f"[TRADUTOR] Google falhou: {e if VERBOSE_LOGS else 'erro (ver detalhe com VERBOSE_LOGS=True)'}")
                         translated = None
 
-                    # 2ª tentativa: MyMemory (precisa de um código de idioma real, não 'auto')
+                    # 2ª tentativa: MyMemory
                     if not translated:
+                        source_lang = None
                         try:
                             source_lang = detectar_idioma(dados["original"])
                             translated = await asyncio.to_thread(
                                 MyMemoryTranslator(source=source_lang, target=user_locale_full).translate,
                                 dados["original"]
                             )
-                            print(f"[TRADUTOR] MyMemory retornou: {translated!r}")
+                            if VERBOSE_LOGS:
+                                print(f"[TRADUTOR] MyMemory retornou: {translated!r}")
                             if not e_traducao_valida(translated):
                                 print("[TRADUTOR] MyMemory devolveu erro, a tentar Google novamente...")
                                 translated = None
                         except Exception as e:
-                            print(f"[TRADUTOR] MyMemory falhou: {e}")
+                            print(f"[TRADUTOR] MyMemory falhou: {e if VERBOSE_LOGS else 'erro (ver detalhe com VERBOSE_LOGS=True)'}")
                             translated = None
 
                     # 3ª tentativa: Google (retry)
@@ -130,28 +128,12 @@ class TranslateView(discord.ui.View):
                                 GoogleTranslator(source='auto', target=user_locale_short).translate,
                                 dados["original"]
                             )
-                            print(f"[TRADUTOR] Google (retry) retornou: {translated!r}")
+                            if VERBOSE_LOGS:
+                                print(f"[TRADUTOR] Google (retry) retornou: {translated!r}")
                             if not e_traducao_valida(translated):
                                 translated = None
                         except Exception as e:
-                            print(f"[TRADUTOR] Google (retry) falhou: {e}")
-                            translated = None
-
-                    # 4ª tentativa: MyMemory (retry), caso o idioma detetado à primeira
-                    # tenha sido a causa da falha (raro, mas mais barato que desistir).
-                    if not translated:
-                        try:
-                            if source_lang is None:
-                                source_lang = detectar_idioma(dados["original"])
-                            translated = await asyncio.to_thread(
-                                MyMemoryTranslator(source=source_lang, target=user_locale_full).translate,
-                                dados["original"]
-                            )
-                            print(f"[TRADUTOR] MyMemory (retry) retornou: {translated!r}")
-                            if not e_traducao_valida(translated):
-                                translated = None
-                        except Exception as e:
-                            print(f"[TRADUTOR] MyMemory (retry) falhou: {e}")
+                            print(f"[TRADUTOR] Google (retry) falhou: {e if VERBOSE_LOGS else 'erro (ver detalhe com VERBOSE_LOGS=True)'}")
                             translated = None
 
                     if translated and e_traducao_valida(translated):
@@ -188,7 +170,7 @@ class Traducao(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.delete_lock = asyncio.Lock()
-        print("[TRADUÇÃO] Cog carregado — com validação robusta de erros de tradução e fix MyMemory 'auto'.")
+        print("[TRADUÇÃO] Cog carregado — com validação robusta e fix MyMemory.")
 
     async def apagar_com_retry(self, message: discord.Message, tentativas: int = 3) -> bool:
         async with self.delete_lock:
