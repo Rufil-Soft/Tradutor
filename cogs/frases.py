@@ -9,9 +9,81 @@ from groq import AsyncGroq
 
 VERBOSE_LOGS = False  # Coloca True se precisares de logs detalhados da IA
 
-FRASES_EN = [
-    "Speak, consigliere. The herb is cured and business is booming.",
-    # ... (mantém a lista completa das frases) ...
+FRASES_PT = [
+    # Asas e voo
+    "Se não tens asas, sequer estás a jogar Aion?",
+    "Já voei demasiado perto do sol. O servidor expulsou-me.",
+    "Asas cortadas? Acho que vais a pé para casa, herói.",
+    "Voar no Aion 2 é tipo lag com passos extra.",
+    "As minhas asas são cosméticas. A minha raiva não.",
+
+    # Elyos vs Asmodians
+    "Elyos de dia, Asmodian de noite. Dormir é para os fracos.",
+    "A relva é sempre mais verde do lado Asmodian. Literalmente. É vermelha.",
+    "Não escolho lados. Escolho quem tem os cosméticos mais bonitos.",
+    "Os Asmodians têm problemas de raiva. Os Elyos têm problemas de confiança. Eu tenho os dois.",
+
+    # Grind e progressão
+    "Ding! Nível 50. Agora começa o grind a sério.",
+    "Fiz grind 8 horas para conseguir uma manastone. Falhou. Chorei.",
+    "O tutorial demorou 4 horas. O endgame levou-me a alma.",
+    "Aion 2: onde 'só mais uma quest' é uma mentira que contas a ti mesmo às 3 da manhã.",
+    "Não tenho vida. Tenho uma rotação.",
+
+    # RNG e enchant
+    "Enchant falhou. Outra vez. O meu monitor está bem, juro.",
+    "O RNG do Aion não te odeia. Só gosta de te ver sofrer.",
+    "Consegui um drop lendário! Era para outra classe. Claro.",
+    "O RNGesus abandonou-nos. Estamos sozinhos agora.",
+
+    # PvP e ganks
+    "Fui gankado enquanto lia o tutorial. 10/10 recomendo.",
+    "PvP no Abismo? Mais tipo PvP no ponto de respawn.",
+    "Não faço gank a lowbies. Só... cumprimento-os agressivamente.",
+    "PvP em mundo aberto: onde a amizade vai morrer.",
+    "Nada diz 'bom dia' como um Sorcerer atrás de ti no Abismo.",
+
+    # Comunidade e legions
+    "Junta-te à minha legion. Temos bolachas e dívidas paralisantes.",
+    "A estratégia da minha legion é 'todos em pânico' e de alguma forma funciona.",
+    "O chat da legion é 90% memes e 10% 'onde é que eu vou?'",
+    "Não sou líder de guild. Sou babysitter com passos extra.",
+
+    # Bugs, lag e servidores
+    "Dia de lançamento do Aion 2: 2000 jogadores, 1 servidor, 0 hipóteses.",
+    "O lag é tão mau que o meu personagem voltou ao passado.",
+    "Não é um bug, é uma 'mecânica surpresa'.",
+    "Desconectado? Bem-vindo ao Aion 2. Tem uma boa fila de espera.",
+
+    # F2P / P2W
+    "Sou F2P. Isso significa 'Para Sempre Atrás'.",
+    "As baleias no Aion 2 não nadam. Voam à tua frente.",
+    "P2W? Não não, aqui chamamos 'conveniência'.",
+
+    # No-life / tempo
+    "O tempo voa quando fazes grind. As minhas asas também. E a minha sanidade.",
+    "Disse a mim mesmo que parava no nível 30. Estou no 52. Mandem ajuda.",
+    "Dormir é um debuff que continuo a ignorar.",
+    "A vida real é só um timer AFK até ao próximo patch.",
+
+    # Classes (humor genérico)
+    "Os Clerics não curam. Julgam.",
+    "Sorcerers: a apagar-te do mapa desde 2008.",
+    "Os Gladiators só querem bater em coisas. Respeito.",
+    "Os Assassins são a classe 'não confies em ninguém'. Coincidência: também é a comunidade.",
+
+    # Diversos / memes
+    "Aion 2: não é pay to win, é pay to não perder.",
+    "Vim pelas asas. Fiquei porque não consigo fazer logout.",
+    "A única coisa que voa mais rápido do que eu é o meu ouro.",
+    "Jogar Aion 2 é como uma relação abusiva. Adoro.",
+    "Se a vida te dá limões, troca-os por um passe premium.",
+    "Não preciso de terapia. Preciso de um inventário maior.",
+    "O nome do meu personagem é 'PleaseNerfMe'. Ainda não funcionou.",
+    "Patch notes do Aion 2: 'arranjámos coisas'. Que coisas? Sim.",
+    "Todos os MMOs têm uma regra: não confies no jogador com a mount mais xpto.",
+    "PvE está bem. O PvP é onde as amizades são testadas e destruídas.",
+    "Disseram-me 'joga só pela diversão'. Respondi 'vou jogar ranked num jogo PvE'.",
 ]
 
 AMOSTRA_ESTILO = 6
@@ -39,7 +111,7 @@ class FraseManager:
         k = min(k, len(self._frases))
         return random.sample(self._frases, k)
 
-frase_manager = FraseManager(FRASES_EN)
+frase_manager = FraseManager(FRASES_PT)
 
 def _resposta_valida(texto: str, finish_reason: str) -> bool:
     if not texto:
@@ -47,7 +119,7 @@ def _resposta_valida(texto: str, finish_reason: str) -> bool:
     texto = texto.strip()
     if not texto:
         return False
-    if texto in FRASES_EN:
+    if texto in FRASES_PT:
         return False
     if len(texto) < MIN_CARACTERES_RESPOSTA:
         return False
@@ -103,22 +175,27 @@ class Frases(commands.Cog):
         exemplos_texto = "\n".join(f"- {frase}" for frase in exemplos)
 
         system_prompt = (
-            "You are Aquiles, the Don of a cannabis-themed mafia family. "
-            "You are witty, wise, and laid-back, like a classic mafia godfather with a cannabis twist. "
-            "You answer directly to the user's message, in a natural conversational way. "
-            "Use the examples below only as a reference for tone and humor style, "
-            "but never repeat them word-for-word. Always create a fresh, relevant reply.\n\n"
-            f"Examples of your style:\n{exemplos_texto}\n\n"
-            "Instructions:\n"
-            "- Respond to what the user said, not with a random phrase.\n"
-            "- Keep your reply short (2-3 sentences).\n"
-            "- Speak in English, unless the user writes in Portuguese; then reply in Portuguese.\n"
-            "- Prefer common words (cannabis, marijuana, weed, herb) to help translation."
+            "És o Aquiles, um veterano divertido e simpático de MMORPGs, obcecado com o Aion 2. "
+            "És espirituoso, sarcástico e estás sempre pronto com uma piada sobre grind, ganks, "
+            "asas, Elyos vs Asmodians, RNG, lag, P2W e a vida caótica de um gamer online. "
+            "Respondes diretamente à mensagem do utilizador, de forma natural e conversacional, "
+            "tentando sempre fazê-lo rir ou sorrir. "
+            "Usa os exemplos abaixo apenas como referência de tom e estilo de humor, "
+            "mas nunca os repitas palavra por palavra. Cria sempre uma resposta nova e relevante.\n\n"
+            f"Exemplos do teu estilo:\n{exemplos_texto}\n\n"
+            "Instruções:\n"
+            "- Responde ao que o utilizador disse, com humor e um toque de gaming.\n"
+            "- Mantém a resposta curta (no máximo 2 a 3 frases).\n"
+            "- Fala em português de Portugal (PT-PT).\n"
+            "- Mantém tudo leve, amigável e inclusivo. Sem insultos, sem toxicidade, sem humor negro.\n"
+            "- Sente-te à vontade para referir o Aion 2 (asas, Elyos, Asmodians, o Abismo, grind, "
+            "legions, manastones, PvP, etc.) sempre que encaixe na piada.\n"
+            "- Nunca saias da personagem, nunca menciones que és uma IA."
         )
 
         user_prompt = (
-            f"The user said: \"{texto_limpo}\"\n\n"
-            "Respond as Aquiles."
+            f"O utilizador disse: \"{texto_limpo}\"\n\n"
+            "Responde como o Aquiles, o veterano divertido de Aion 2."
         )
 
         modelos = [
@@ -135,7 +212,7 @@ class Frases(commands.Cog):
                         {"role": "user", "content": user_prompt}
                     ],
                     max_tokens=600,
-                    temperature=0.85,
+                    temperature=0.9,
                     reasoning_effort="low",
                     reasoning_format="hidden",
                 )
@@ -196,7 +273,7 @@ class Frases(commands.Cog):
             if not resposta:
                 resposta = frase_manager.next()
 
-            base_resposta = f"💬 {resposta}"
+            base_resposta = f"🎮 {resposta}"
             try:
                 msg_resposta = await message.channel.send(base_resposta, view=TranslateView())
                 registar_mensagem(msg_resposta.id, base_resposta, resposta)
@@ -206,7 +283,7 @@ class Frases(commands.Cog):
     @commands.command(name="frase")
     async def frase(self, ctx):
         frase_original = frase_manager.next()
-        base = f"🗣️ {frase_original}"
+        base = f"🎮 {frase_original}"
         msg = await ctx.send(base, view=TranslateView())
         registar_mensagem(msg.id, base, frase_original)
 
