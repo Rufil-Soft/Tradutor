@@ -7,7 +7,7 @@ from discord.ext import commands
 from cogs.traducao import TranslateView, registar_mensagem
 from groq import AsyncGroq
 
-VERBOSE_LOGS = False  # Coloca True se precisares de logs detalhados da IA
+VERBOSE_LOGS = True  # Coloca True se precisares de logs detalhados da IA
 
 FRASES_PT = [
     # Asas e voo
