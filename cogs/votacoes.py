@@ -32,82 +32,56 @@ NUM_EMOJIS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", 
 
 
 async def build_embed_async(pergunta, opcoes, contagem, total_votos,
-                            end_time, final, lang):
+                            end_time, final):
     """Constrói o embed da votação (inicial ou final)."""
-    if final:
-        titulo = await translate("📊 Poll · Result", lang)
-        cor = discord.Color.from_rgb(0, 200, 255)
-    else:
-        titulo = await translate("📡 Poll · Vote Now", lang)
-        cor = discord.Color.from_rgb(255, 200, 0)
+    cor = discord.Color.from_rgb(0, 200, 255) if final else discord.Color.from_rgb(255, 200, 0)
 
     embed = discord.Embed(
-        title=titulo,
-        description=f"**{await translate('Question', lang)}:** {pergunta}",
-        color=cor,
-        timestamp=discord.utils.utcnow()
+        description=f"## Pergunta: {pergunta}",
+        color=cor
     )
 
+    # Lista de opções com contagem de votos
+    linhas = []
+    for i, op in enumerate(opcoes):
+        emoji = NUM_EMOJIS[i] if i < len(NUM_EMOJIS) else "🔹"
+        v = contagem.get(i, 0)
+        if total_votos > 0:
+            pct = (v / total_votos * 100)
+            linhas.append(f"{emoji} **{op}** — `{v} voto(s)` ({pct:.0f}%)")
+        else:
+            linhas.append(f"{emoji} **{op}** — `0 votos`")
+
+    titulo_opcoes = "📊 Resultados" if final else "📋 Opções"
+    embed.add_field(name=titulo_opcoes, value="\n".join(linhas), inline=False)
+
+    # Tempo relativo
     unix = int(end_time.timestamp())
-    if not final:
-        embed.add_field(
-            name="🗓️ " + await translate("Ends", lang),
-            value=f"<t:{unix}:F>  (<t:{unix}:R>)",
-            inline=False
-        )
+    if final:
+        embed.add_field(name="🗓️ Terminou", value=f"<t:{unix}:R>", inline=False)
     else:
-        embed.add_field(
-            name="🗓️ " + await translate("Ended", lang),
-            value=f"<t:{unix}:F>",
-            inline=False
-        )
+        embed.add_field(name="🗓️ Termina em", value=f"<t:{unix}:R>", inline=False)
 
-    if final and total_votos > 0:
-        vencedor_idx = max(contagem, key=contagem.get)
-        vencedor_txt = opcoes[vencedor_idx]
-        embed.add_field(
-            name="🏆 " + await translate("Winner", lang),
-            value=f"**{vencedor_txt.upper()}** ({contagem[vencedor_idx]} {await translate('votes', lang)})",
-            inline=False
-        )
-
-        linhas = []
-        for idx, opcao in enumerate(opcoes):
-            v = contagem.get(idx, 0)
-            pct = (v / total_votos * 100) if total_votos else 0
-            linhas.append(f"**{opcao}:** `{pct:.0f}%` ({v}v)")
-        embed.add_field(
-            name="📊 " + await translate("Results", lang),
-            value="\n".join(linhas),
-            inline=False
-        )
-    elif final and total_votos == 0:
-        embed.add_field(
-            name="⚠️ " + await translate("No votes", lang),
-            value=await translate("No votes were cast.", lang),
-            inline=False
-        )
+    # Total de votos no footer
+    embed.set_footer(text=f"Total de votos: {total_votos}")
 
     return embed
 
 
-async def build_translated_embed(pergunta: str, opcoes: list, end_time,
-                                  lang: str, final: bool = False) -> discord.Embed:
-    """Constrói uma embed traduzida para mostrar em ephemeral ao utilizador."""
-    titulo = await translate("📡 Poll · Vote Now", lang) if not final else await translate("📊 Poll · Result", lang)
-    cor = discord.Color.from_rgb(255, 200, 0) if not final else discord.Color.from_rgb(0, 200, 255)
-
+async def build_translated_embed(pergunta: str, opcoes: list, end_time, lang: str):
+    """Embed traduzida para mostrar em ephemeral ao utilizador."""
     pergunta_trad = await translate(pergunta, lang)
+    cor = discord.Color.from_rgb(255, 200, 0)
+
     embed = discord.Embed(
-        title=titulo,
-        description=f"**{await translate('Question', lang)}:** {pergunta_trad}",
+        description=f"## {await translate('Question', lang)}: {pergunta_trad}",
         color=cor
     )
 
     unix = int(end_time.timestamp())
     embed.add_field(
-        name="🗓️ " + (await translate("Ends", lang) if not final else await translate("Ended", lang)),
-        value=f"<t:{unix}:F>" + (f"  (<t:{unix}:R>)" if not final else ""),
+        name="🗓️ " + await translate("Ends in", lang),
+        value=f"<t:{unix}:R>",
         inline=False
     )
 
@@ -126,7 +100,7 @@ async def build_translated_embed(pergunta: str, opcoes: list, end_time,
 
 
 class VotacaoView(discord.ui.View):
-    def __init__(self, poll_id: int, opcoes: list, criador_id: int, lang: str = "en"):
+    def __init__(self, poll_id: int, opcoes: list, criador_id: int, lang: str = "pt"):
         super().__init__(timeout=None)
         self.poll_id = poll_id
         self.opcoes = opcoes
@@ -145,7 +119,6 @@ class VotacaoView(discord.ui.View):
             btn.callback = self.voto_callback
             self.add_item(btn)
 
-        # Botão de tradução 🌍
         translate_btn = discord.ui.Button(
             label="Translate",
             style=discord.ButtonStyle.primary,
@@ -169,13 +142,11 @@ class VotacaoView(discord.ui.View):
     async def voto_callback(self, interaction: discord.Interaction):
         poll_id = self.poll_id
         user_id = interaction.user.id
-        user_locale = str(interaction.locale or "en").split("-")[0]
 
         dados = poll_data.get(poll_id)
         if not dados:
             await interaction.response.send_message(
-                await translate("⛔ This poll has closed.", user_locale),
-                ephemeral=True
+                "⛔ Esta votação já fechou.", ephemeral=True
             )
             return
 
@@ -185,24 +156,43 @@ class VotacaoView(discord.ui.View):
         if user_id in dados["votos"]:
             antigo = dados["votos"][user_id]
             if antigo == opcao_idx:
-                msg = await translate("ℹ️ You already voted for {}.", user_locale)
                 await interaction.response.send_message(
-                    msg.format(self.opcoes[opcao_idx]), ephemeral=True
+                    f"ℹ️ Já votaste em **{self.opcoes[opcao_idx]}**.", ephemeral=True
                 )
                 return
             else:
                 dados["votos"][user_id] = opcao_idx
-                msg = await translate("🔄 Vote changed from {} to {}.", user_locale)
                 await interaction.response.send_message(
-                    msg.format(self.opcoes[antigo], self.opcoes[opcao_idx]),
+                    f"🔄 Voto alterado de **{self.opcoes[antigo]}** para **{self.opcoes[opcao_idx]}**.",
                     ephemeral=True
                 )
         else:
             dados["votos"][user_id] = opcao_idx
-            msg = await translate("✅ Vote registered for {}.", user_locale)
             await interaction.response.send_message(
-                msg.format(self.opcoes[opcao_idx]), ephemeral=True
+                f"✅ Voto registado em **{self.opcoes[opcao_idx]}**.",
+                ephemeral=True
             )
+
+        # Atualiza a embed com a contagem atualizada
+        contagem = {i: 0 for i in range(len(dados["opcoes"]))}
+        for v in dados["votos"].values():
+            if v in contagem:
+                contagem[v] += 1
+        total = len(dados["votos"])
+
+        novo_embed = await build_embed_async(
+            pergunta=dados["pergunta"],
+            opcoes=dados["opcoes"],
+            contagem=contagem,
+            total_votos=total,
+            end_time=dados["end_time"],
+            final=False
+        )
+
+        try:
+            await interaction.message.edit(embed=novo_embed)
+        except Exception as e:
+            print(f"[VOTACOES] Erro ao editar embed apos voto: {e}")
 
     async def translate_callback(self, interaction: discord.Interaction):
         """Mostra ao utilizador uma versão traduzida da votação (só ele vê)."""
@@ -210,11 +200,19 @@ class VotacaoView(discord.ui.View):
         dados = poll_data.get(poll_id)
         if not dados:
             await interaction.response.send_message(
-                "⛔ This poll has closed.", ephemeral=True
+                "⛔ Esta votação já fechou.", ephemeral=True
             )
             return
 
         user_locale = str(interaction.locale or "en").split("-")[0]
+
+        # Se o idioma for PT, não vale a pena traduzir
+        if user_locale == "pt":
+            await interaction.response.send_message(
+                "ℹ️ A votação já está em português.",
+                ephemeral=True
+            )
+            return
 
         await interaction.response.defer(ephemeral=True)
 
@@ -222,8 +220,7 @@ class VotacaoView(discord.ui.View):
             pergunta=dados["pergunta"],
             opcoes=dados["opcoes"],
             end_time=dados["end_time"],
-            lang=user_locale,
-            final=False
+            lang=user_locale
         )
 
         await interaction.followup.send(
@@ -236,7 +233,7 @@ class VotacaoView(discord.ui.View):
         """Apenas administradores podem cancelar."""
         if not interaction.user.guild_permissions.administrator:
             await interaction.response.send_message(
-                "🛑 Only administrators can cancel a poll.",
+                "🛑 Apenas administradores podem cancelar uma votação.",
                 ephemeral=True
             )
             return
@@ -244,7 +241,7 @@ class VotacaoView(discord.ui.View):
         dados = poll_data.get(self.poll_id)
         if not dados:
             await interaction.response.send_message(
-                "⛔ This poll is no longer active.", ephemeral=True
+                "⛔ Esta votação já não está ativa.", ephemeral=True
             )
             return
 
@@ -259,28 +256,28 @@ class VotacaoView(discord.ui.View):
 
         poll_data.pop(self.poll_id, None)
         await interaction.response.send_message(
-            "🛑 Poll cancelled.", ephemeral=True
+            "🛑 Votação cancelada.", ephemeral=True
         )
 
 
-class VotacaoModal(discord.ui.Modal, title="New Poll"):
+class VotacaoModal(discord.ui.Modal, title="Nova Votação"):
     pergunta = discord.ui.TextInput(
-        label="Question",
-        placeholder="Ex.: Which class is the best?",
+        label="Pergunta",
+        placeholder="Ex.: Qual é a melhor classe?",
         style=discord.TextStyle.paragraph,
         required=True,
         max_length=256
     )
     opcoes = discord.ui.TextInput(
-        label="Options (separated by comma)",
+        label="Opções (separadas por vírgula)",
         placeholder="Ex.: Gladiator, Sorcerer, Cleric",
         style=discord.TextStyle.paragraph,
         required=True,
         max_length=512
     )
     duracao = discord.ui.TextInput(
-        label="Duration (hours)",
-        placeholder="Ex.: 1.5 for 1h30m. Default 1h",
+        label="Duração (horas)",
+        placeholder="Ex.: 1.5 para 1h30min. Padrão 1h",
         style=discord.TextStyle.short,
         required=False,
         default="1"
@@ -298,7 +295,7 @@ class VotacaoModal(discord.ui.Modal, title="New Poll"):
         lista_opcoes = [op.strip() for op in opcoes_str.split(",") if op.strip()]
         if len(lista_opcoes) < 2:
             await interaction.response.send_message(
-                "⚠️ You need at least 2 options.", ephemeral=True
+                "⚠️ Precisas de pelo menos 2 opções.", ephemeral=True
             )
             return
 
@@ -308,7 +305,7 @@ class VotacaoModal(discord.ui.Modal, title="New Poll"):
                 raise ValueError
         except ValueError:
             await interaction.response.send_message(
-                "⚠️ Invalid duration. Use a positive number (e.g. 1.5).",
+                "⚠️ Duração inválida. Usa um número positivo (ex.: 1.5).",
                 ephemeral=True
             )
             return
@@ -353,7 +350,6 @@ class Votacoes(commands.Cog):
             if v in contagem:
                 contagem[v] += 1
         total_votos = len(dados["votos"])
-        lang = dados.get("lang", "en")
 
         embed_final = await build_embed_async(
             pergunta=dados["pergunta"],
@@ -361,8 +357,7 @@ class Votacoes(commands.Cog):
             contagem=contagem,
             total_votos=total_votos,
             end_time=dados["end_time"],
-            final=True,
-            lang=lang
+            final=True
         )
 
         for channel_id, message_id in dados["mensagens"]:
@@ -377,7 +372,7 @@ class Votacoes(commands.Cog):
         del poll_data[poll_id]
         print(f"[VOTACOES] Poll #{poll_id} finalizada e removida.")
 
-    @app_commands.command(name="votacao", description="Create a poll in this channel")
+    @app_commands.command(name="votacao", description="Criar uma votação neste canal (Apenas Administradores)")
     @app_commands.checks.has_permissions(administrator=True)
     async def abrir_modal_votacao(self, interaction: discord.Interaction):
         modal = VotacaoModal(self)
@@ -385,7 +380,6 @@ class Votacoes(commands.Cog):
 
     async def criar_votacao(self, interaction: discord.Interaction,
                             pergunta: str, opcoes: list, duracao: float):
-        criador_locale = str(interaction.locale or "en").split("-")[0]
         guild = interaction.guild
         end_time = discord.utils.utcnow() + timedelta(hours=duracao)
 
@@ -399,7 +393,6 @@ class Votacoes(commands.Cog):
             "mensagens": [],
             "criador": interaction.user.id,
             "guild_id": guild.id,
-            "lang": criador_locale
         }
 
         embed_inicial = await build_embed_async(
@@ -408,18 +401,16 @@ class Votacoes(commands.Cog):
             contagem={i: 0 for i in range(len(opcoes))},
             total_votos=0,
             end_time=end_time,
-            final=False,
-            lang=criador_locale
+            final=False
         )
 
-        view = VotacaoView(poll_id, opcoes, criador_id=interaction.user.id,
-                           lang=criador_locale)
+        view = VotacaoView(poll_id, opcoes, criador_id=interaction.user.id)
         msg = await interaction.channel.send(embed=embed_inicial, view=view)
         poll_data[poll_id]["mensagens"].append((interaction.channel_id, msg.id))
         self.bot.add_view(view)
 
         await interaction.response.send_message(
-            f"✅ Poll #{poll_id} created in this channel. Ends in {duracao}h.",
+            f"✅ Votação #{poll_id} criada neste canal. Termina em {duracao}h.",
             ephemeral=True
         )
 
