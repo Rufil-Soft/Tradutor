@@ -165,66 +165,101 @@ class Frases(commands.Cog):
         )
 
         user_prompt = f"Mensagem do jogador: \"{texto_limpo}\"\n\nResponde como o Aquiles."
+        mensagens_api = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
 
-        for modelo in self.modelos:
-            try:
-                response = await self.api_client.chat.completions.create(
-                    model=modelo,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    max_tokens=300,
-                    temperature=0.85,
-                    timeout=API_TIMEOUT_SEGUNDOS,
-                    # O "openrouter/free" escolhe um modelo diferente a cada
-                    # pedido, e por vezes calha num modelo de raciocínio
-                    # (reasoning). Sem isto, esse modelo pode gastar o
-                    # max_tokens todo a "pensar" e devolver content=None com
-                    # finish_reason="length" — foi o que aconteceu no log
-                    # mais recente. Este parâmetro é normalizado pela própria
-                    # OpenRouter e funciona em qualquer modelo, mesmo os que
-                    # não suportam raciocínio (nesse caso é simplesmente
-                    # ignorado, sem erro).
-                    extra_body={"reasoning": {"effort": "low", "exclude": True}},
-                )
+        # Disparamos os modelos em PARALELO (não sequencialmente) e ficamos
+        # com o primeiro que devolver uma resposta válida, cancelando os
+        # restantes. Como são todos modelos ':free' (custo zero), isto não
+        # tem custo extra — e evita que a latência total seja a SOMA de
+        # vários timeouts/falhas em cadeia (era isso que estava a tornar o
+        # bot lento: openrouter/free a falhar, depois 15s à espera do
+        # nemotron, depois o gemma). Agora a latência sentida é a do modelo
+        # mais rápido a responder bem, não a soma de todos os que falharam.
+        tasks = {
+            asyncio.create_task(self._tentar_modelo(modelo, mensagens_api)): modelo
+            for modelo in self.modelos
+        }
 
-                # Alguns modelos ':free' da OpenRouter, quando o provedor
-                # upstream falha a meio do pedido, devolvem um objeto de
-                # resposta "válido" (sem lançar HTTPException) mas com
-                # 'choices' a None/vazio. Sem esta verificação, o acesso a
-                # response.choices[0] rebenta com
-                # "'NoneType' object is not subscriptable" — foi isto que
-                # aconteceu ao nemotron no log mais recente.
-                choices = getattr(response, "choices", None)
-                if not choices:
-                    erro_upstream = getattr(response, "error", None)
-                    print(f"[FRASES] Modelo {modelo} devolveu resposta sem 'choices'. "
-                          f"Erro upstream reportado: {erro_upstream!r}")
-                    continue
+        resposta_final = None
+        try:
+            for tarefa in asyncio.as_completed(list(tasks.keys())):
+                resultado = await tarefa
+                if resultado:
+                    resposta_final = resultado
+                    break
+        finally:
+            for tarefa in tasks:
+                if not tarefa.done():
+                    tarefa.cancel()
 
-                finish_reason = choices[0].finish_reason
+        return resposta_final
 
+    async def _tentar_modelo(self, modelo: str, mensagens_api: list) -> str:
+        """Faz uma chamada a um único modelo e devolve a resposta se for
+        válida, ou None em caso de falha/resposta inválida. Nunca lança
+        exceção — é seguro correr várias instâncias em paralelo."""
+        try:
+            response = await self.api_client.chat.completions.create(
+                model=modelo,
+                messages=mensagens_api,
+                # Subido de 300 para 900: o 'exclude: true' abaixo esconde o
+                # raciocínio interno da resposta visível, mas NÃO liberta
+                # espaço no orçamento de tokens — os tokens de raciocínio
+                # continuam a ser contados. Com 300, um modelo escolhido pelo
+                # router que raciocine bastante podia gastar tudo a "pensar"
+                # e devolver content=None com finish_reason="length". 900 dá
+                # margem para isso e ainda sobrar espaço para a resposta.
+                max_tokens=900,
+                temperature=0.85,
+                timeout=API_TIMEOUT_SEGUNDOS,
+                # O "openrouter/free" escolhe um modelo diferente a cada
+                # pedido, e por vezes calha num modelo de raciocínio
+                # (reasoning). Isto reduz o esforço de raciocínio e esconde-o
+                # da resposta — combinado com o max_tokens mais alto acima.
+                extra_body={"reasoning": {"effort": "low", "exclude": True}},
+            )
+
+            # Alguns modelos ':free' da OpenRouter, quando o provedor
+            # upstream falha a meio do pedido, devolvem um objeto de
+            # resposta "válido" (sem lançar HTTPException) mas com
+            # 'choices' a None/vazio. Sem esta verificação, o acesso a
+            # response.choices[0] rebenta com
+            # "'NoneType' object is not subscriptable".
+            choices = getattr(response, "choices", None)
+            if not choices:
+                erro_upstream = getattr(response, "error", None)
+                print(f"[FRASES] Modelo {modelo} devolveu resposta sem 'choices'. "
+                      f"Erro upstream reportado: {erro_upstream!r}")
+                return None
+
+            finish_reason = choices[0].finish_reason
+
+            if VERBOSE_LOGS:
+                print(f"[FRASES] Modelo: {modelo} | finish_reason: {finish_reason}")
+
+            resposta_gerada = choices[0].message.content
+            if VERBOSE_LOGS:
+                print(f"[FRASES] Conteudo bruto ({modelo}): {resposta_gerada!r}")
+
+            if resposta_gerada:
+                resposta_gerada = resposta_gerada.strip()
+
+            if _resposta_valida(resposta_gerada, finish_reason):
                 if VERBOSE_LOGS:
-                    print(f"[FRASES] Modelo: {modelo} | finish_reason: {finish_reason}")
+                    print(f"[FRASES] OK ({modelo}): {resposta_gerada}")
+                return resposta_gerada
 
-                resposta_gerada = choices[0].message.content
-                if VERBOSE_LOGS:
-                    print(f"[FRASES] Conteudo bruto: {resposta_gerada!r}")
-
-                if resposta_gerada:
-                    resposta_gerada = resposta_gerada.strip()
-
-                if _resposta_valida(resposta_gerada, finish_reason):
-                    if VERBOSE_LOGS:
-                        print(f"[FRASES] OK: {resposta_gerada}")
-                    return resposta_gerada
-
-                print(f"[FRASES] Modelo {modelo} devolveu resposta invalida. A tentar proximo...")
-            except Exception as e:
-                print(f"[FRASES] Erro no modelo {modelo}: {e}")
-
-        return None
+            print(f"[FRASES] Modelo {modelo} devolveu resposta invalida.")
+            return None
+        except asyncio.CancelledError:
+            # Esperado quando outro modelo já respondeu primeiro — não é um erro.
+            raise
+        except Exception as e:
+            print(f"[FRASES] Erro no modelo {modelo}: {e}")
+            return None
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
