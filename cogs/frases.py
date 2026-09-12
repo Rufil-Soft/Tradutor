@@ -85,21 +85,23 @@ class Frases(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.api_client = None
-        # "openrouter/free" é um router mantido pela própria OpenRouter que
-        # escolhe automaticamente, em cada pedido, um modelo gratuito
-        # disponível naquele momento. Evita ficarmos presos a slugs fixos
-        # (ex.: minimax/minimax-m2.7:free) que a OpenRouter descontinua ou
-        # reclassifica como pagos sem aviso — foi exatamente isso que causou
-        # o 404 no minimax no log mais recente.
+        # "meta-llama/llama-3.3-70b-instruct:free" é um modelo de instrução
+        # DIRETA (sem raciocínio interno) — elimina de vez a causa raiz dos
+        # bugs anteriores (content=None com finish_reason="length"), porque
+        # não existe raciocínio escondido a consumir o orçamento de tokens.
+        # É também o modelo ':free' mais antigo e estabelecido da OpenRouter
+        # (desde dez/2024), com 13 provedores diferentes por trás do mesmo
+        # slug — a própria OpenRouter já faz balanceamento/fallback entre
+        # eles antes mesmo de chegar ao nosso código.
         #
-        # Mantemos 2 modelos fixos como último recurso, para o caso raro de
-        # o próprio router falhar; se algum destes começar a dar 404/410 de
-        # forma persistente, está descontinuado e deve ser substituído —
-        # confirma sempre em https://openrouter.ai/models?fmt=cards&max_price=0
+        # Mantemos 2 modelos de reserva para o caso (raro) de a família
+        # Llama 3.3 estar completamente indisponível:
+        # - a variante 8B, mais leve, da mesma família;
+        # - "openrouter/free" como router genérico de último recurso.
         self.modelos = [
+            "meta-llama/llama-3.3-70b-instruct:free",
+            "meta-llama/llama-3.3-8b-instruct:free",
             "openrouter/free",
-            "nvidia/nemotron-3-ultra-550b-a55b:free",
-            "google/gemma-4-31b-it:free",
         ]
         self.delete_lock = asyncio.Lock()
         self._init_api()
@@ -205,20 +207,18 @@ class Frases(commands.Cog):
             response = await self.api_client.chat.completions.create(
                 model=modelo,
                 messages=mensagens_api,
-                # Subido de 300 para 900: o 'exclude: true' abaixo esconde o
-                # raciocínio interno da resposta visível, mas NÃO liberta
-                # espaço no orçamento de tokens — os tokens de raciocínio
-                # continuam a ser contados. Com 300, um modelo escolhido pelo
-                # router que raciocine bastante podia gastar tudo a "pensar"
-                # e devolver content=None com finish_reason="length". 900 dá
-                # margem para isso e ainda sobrar espaço para a resposta.
+                # 900 dá margem confortável mesmo que a lista alguma vez
+                # inclua um modelo de raciocínio (ex.: o "openrouter/free"
+                # de último recurso pode calhar nisso). Para os modelos
+                # principais (instrução direta, sem raciocínio) isto é só
+                # uma rede de segurança — normalmente terminam bem antes.
                 max_tokens=900,
                 temperature=0.85,
                 timeout=API_TIMEOUT_SEGUNDOS,
-                # O "openrouter/free" escolhe um modelo diferente a cada
-                # pedido, e por vezes calha num modelo de raciocínio
-                # (reasoning). Isto reduz o esforço de raciocínio e esconde-o
-                # da resposta — combinado com o max_tokens mais alto acima.
+                # No-op inofensivo em modelos sem raciocínio (como os dois
+                # principais da lista agora); só entra em ação se a chamada
+                # cair no fallback "openrouter/free" e este escolher um
+                # modelo de raciocínio.
                 extra_body={"reasoning": {"effort": "low", "exclude": True}},
             )
 
