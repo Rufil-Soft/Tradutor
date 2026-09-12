@@ -174,10 +174,10 @@ class Frases(commands.Cog):
         self.api_client = None
         # Modelos gratuitos do OpenRouter, por ordem de preferência.
         # Se um falhar, tenta o seguinte.
-        self.modelos = [
-            "sophosympatheia/rogue-rose-103b-v0.2:free",   # especializado em roleplay
-            "nousresearch/hermes-3-llama-3.1-405b:free",   # bom em personagens
-            "tngtech/deepseek-r1t-chimera:free",           # contexto enorme, fallback
+      self.modelos = [
+        "openrouter/free",  # Router automático — escolhe um modelo gratuito disponível
+        "arcee-ai/trinity-large-preview:free",  # Roleplay / storytelling
+        "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",  # Venice Uncensored
         ]
         self.delete_lock = asyncio.Lock()
         self._init_api()
