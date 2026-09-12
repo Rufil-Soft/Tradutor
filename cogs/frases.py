@@ -1,4 +1,6 @@
 import os
+import time
+import random
 import asyncio
 import re
 import discord
@@ -8,8 +10,34 @@ from openai import AsyncOpenAI
 
 VERBOSE_LOGS = True
 
-# Resposta de fallback quando a IA falha (curta e temática, mas genérica)
-FALLBACK_PT = "Estou com lag mental, tenta outra vez."
+# Timeout por chamada individual à API (segundos). Modelos ':free' partilhados
+# podem "pendurar-se" sob carga; falhar depressa e passar ao próximo modelo
+# da lista é preferível a deixar o utilizador à espera vários minutos.
+API_TIMEOUT_SEGUNDOS = 15
+
+# Cooldown por utilizador entre menções ao bot (segundos). Sem isto, qualquer
+# pessoa pode disparar uma chamada externa por cada menção, sem limite —
+# agrava os rate-limits partilhados da OpenRouter e, se algum dia usares um
+# modelo pago no fallback, também é uma via de abuso de custo.
+COOLDOWN_SEGUNDOS = 10
+_ultima_mencao = {}  # user_id -> timestamp da última menção processada
+
+# Frases de fallback quando a IA falha (todos os modelos indisponíveis, ou só
+# devolveram lixo/raciocínio vazado). Uma lista pequena mas com variedade,
+# para o utilizador não ver sempre a mesma frase repetida se a IA estiver
+# instável durante algum tempo.
+FRASES_FALLBACK_PT = [
+    "Estou com lag mental, tenta outra vez.",
+    "Server dos meus pensamentos caiu, dá-me um segundo.",
+    "Fiquei preso num loading screen aqui dentro, repete lá isso.",
+    "Isto que dissestes fez-me crashar tipo boss bugado. Outra vez?",
+    "Tive um disconnect a meio do raciocínio, pa. Manda de novo.",
+    "Ainda a fazer respawn das ideias, espera aí.",
+]
+
+
+def _frase_fallback() -> str:
+    return random.choice(FRASES_FALLBACK_PT)
 
 # Padrões que indicam que o modelo vazou raciocínio interno em vez de
 # dar a resposta final. Rejeitamos e tentamos o próximo modelo.
@@ -148,6 +176,17 @@ class Frases(commands.Cog):
                     ],
                     max_tokens=300,
                     temperature=0.85,
+                    timeout=API_TIMEOUT_SEGUNDOS,
+                    # O "openrouter/free" escolhe um modelo diferente a cada
+                    # pedido, e por vezes calha num modelo de raciocínio
+                    # (reasoning). Sem isto, esse modelo pode gastar o
+                    # max_tokens todo a "pensar" e devolver content=None com
+                    # finish_reason="length" — foi o que aconteceu no log
+                    # mais recente. Este parâmetro é normalizado pela própria
+                    # OpenRouter e funciona em qualquer modelo, mesmo os que
+                    # não suportam raciocínio (nesse caso é simplesmente
+                    # ignorado, sem erro).
+                    extra_body={"reasoning": {"effort": "low", "exclude": True}},
                 )
 
                 # Alguns modelos ':free' da OpenRouter, quando o provedor
@@ -193,6 +232,25 @@ class Frases(commands.Cog):
             return
 
         if self.bot.user in message.mentions:
+            agora = time.time()
+            ultima = _ultima_mencao.get(message.author.id)
+            if ultima and (agora - ultima) < COOLDOWN_SEGUNDOS:
+                restante = COOLDOWN_SEGUNDOS - (agora - ultima)
+                try:
+                    aviso = await message.channel.send(
+                        f"⏳ Calma aí, {message.author.mention}! Espera {restante:.0f}s antes de me chamares outra vez.",
+                        delete_after=6,
+                        allowed_mentions=discord.AllowedMentions(users=False)
+                    )
+                except Exception:
+                    pass
+                return
+            _ultima_mencao[message.author.id] = agora
+            if len(_ultima_mencao) > 500:
+                expirar = [uid for uid, ts in _ultima_mencao.items() if agora - ts > COOLDOWN_SEGUNDOS * 10]
+                for uid in expirar:
+                    _ultima_mencao.pop(uid, None)
+
             conteudo_formatado = f"<@{message.author.id}>: {message.content}"
 
             # 1) Envia o echo (mensagem do utilizador + botão 🌍)
@@ -222,7 +280,7 @@ class Frases(commands.Cog):
             async with message.channel.typing():
                 resposta = await self._gerar_resposta_ia(message.content)
             if not resposta:
-                resposta = FALLBACK_PT
+                resposta = _frase_fallback()
 
             base_resposta = f"🎮 {resposta}"
             try:
@@ -233,8 +291,14 @@ class Frases(commands.Cog):
 
     @commands.command(name="frase")
     async def frase(self, ctx):
-        """Fallback simples: responde uma frase temática."""
-        await ctx.send(f"🎮 {FALLBACK_PT}", view=TranslateView())
+        """Responde com uma frase temática gerada pela IA, ou uma frase fixa
+        (com variedade) se a IA não estiver disponível."""
+        async with ctx.typing():
+            resposta = await self._gerar_resposta_ia("Diz algo aleatório e divertido sobre o jogo.")
+        if not resposta:
+            resposta = _frase_fallback()
+        msg = await ctx.send(f"🎮 {resposta}", view=TranslateView())
+        registar_mensagem(msg.id, f"🎮 {resposta}", resposta)
 
     @commands.command(name="iatest")
     async def iatest(self, ctx, *, texto: str):
@@ -242,7 +306,7 @@ class Frases(commands.Cog):
         if resposta:
             await ctx.send(f"🧠 IA: {resposta}")
         else:
-            await ctx.send(f"❌ IA falhou. Fallback: {FALLBACK_PT}")
+            await ctx.send(f"❌ IA falhou. Fallback: {_frase_fallback()}")
 
 
 async def setup(bot: commands.Bot):
