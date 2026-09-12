@@ -5,11 +5,12 @@ from discord.ext import commands, tasks
 from datetime import timedelta
 from deep_translator import GoogleTranslator
 
-# Cache de traduções para os títulos dos embeds
+# Cache de traduções
 _t_cache = {}
 
 async def translate(key: str, target: str) -> str:
-    if target == "pt":
+    """Traduz um texto para o idioma de destino. Cache em memória."""
+    if not key or not target or target == "pt":
         return key
     cache_key = (key, target)
     if cache_key in _t_cache:
@@ -18,8 +19,10 @@ async def translate(key: str, target: str) -> str:
         res = await asyncio.to_thread(
             GoogleTranslator(source='auto', target=target).translate, key
         )
-        _t_cache[cache_key] = res
-        return res
+        if res:
+            _t_cache[cache_key] = res
+            return res
+        return key
     except Exception:
         return key
 
@@ -88,6 +91,40 @@ async def build_embed_async(pergunta, opcoes, contagem, total_votos,
     return embed
 
 
+async def build_translated_embed(pergunta: str, opcoes: list, end_time,
+                                  lang: str, final: bool = False) -> discord.Embed:
+    """Constrói uma embed traduzida para mostrar em ephemeral ao utilizador."""
+    titulo = await translate("📡 Poll · Vote Now", lang) if not final else await translate("📊 Poll · Result", lang)
+    cor = discord.Color.from_rgb(255, 200, 0) if not final else discord.Color.from_rgb(0, 200, 255)
+
+    pergunta_trad = await translate(pergunta, lang)
+    embed = discord.Embed(
+        title=titulo,
+        description=f"**{await translate('Question', lang)}:** {pergunta_trad}",
+        color=cor
+    )
+
+    unix = int(end_time.timestamp())
+    embed.add_field(
+        name="🗓️ " + (await translate("Ends", lang) if not final else await translate("Ended", lang)),
+        value=f"<t:{unix}:F>" + (f"  (<t:{unix}:R>)" if not final else ""),
+        inline=False
+    )
+
+    linhas = []
+    for i, opcao in enumerate(opcoes):
+        opcao_trad = await translate(opcao, lang)
+        emoji = NUM_EMOJIS[i] if i < len(NUM_EMOJIS) else "🔹"
+        linhas.append(f"{emoji} {opcao_trad}")
+    embed.add_field(
+        name="📋 " + await translate("Options", lang),
+        value="\n".join(linhas),
+        inline=False
+    )
+
+    return embed
+
+
 class VotacaoView(discord.ui.View):
     def __init__(self, poll_id: int, opcoes: list, criador_id: int, lang: str = "en"):
         super().__init__(timeout=None)
@@ -107,6 +144,17 @@ class VotacaoView(discord.ui.View):
             )
             btn.callback = self.voto_callback
             self.add_item(btn)
+
+        # Botão de tradução 🌍
+        translate_btn = discord.ui.Button(
+            label="Translate",
+            style=discord.ButtonStyle.primary,
+            emoji="🌍",
+            custom_id=f"traduzir_poll_{poll_id}",
+            row=2
+        )
+        translate_btn.callback = self.translate_callback
+        self.add_item(translate_btn)
 
         cancel_btn = discord.ui.Button(
             label="Cancel",
@@ -156,6 +204,34 @@ class VotacaoView(discord.ui.View):
                 msg.format(self.opcoes[opcao_idx]), ephemeral=True
             )
 
+    async def translate_callback(self, interaction: discord.Interaction):
+        """Mostra ao utilizador uma versão traduzida da votação (só ele vê)."""
+        poll_id = self.poll_id
+        dados = poll_data.get(poll_id)
+        if not dados:
+            await interaction.response.send_message(
+                "⛔ This poll has closed.", ephemeral=True
+            )
+            return
+
+        user_locale = str(interaction.locale or "en").split("-")[0]
+
+        await interaction.response.defer(ephemeral=True)
+
+        embed_trad = await build_translated_embed(
+            pergunta=dados["pergunta"],
+            opcoes=dados["opcoes"],
+            end_time=dados["end_time"],
+            lang=user_locale,
+            final=False
+        )
+
+        await interaction.followup.send(
+            content="🌍 Here's the poll translated for you:",
+            embed=embed_trad,
+            ephemeral=True
+        )
+
     async def cancel_callback(self, interaction: discord.Interaction):
         """Apenas administradores podem cancelar."""
         if not interaction.user.guild_permissions.administrator:
@@ -172,7 +248,6 @@ class VotacaoView(discord.ui.View):
             )
             return
 
-        # Apaga a mensagem da votação
         for channel_id, message_id in dados["mensagens"]:
             try:
                 canal = interaction.client.get_channel(channel_id)
