@@ -59,9 +59,9 @@ class Frases(commands.Cog):
         self.api_client = None
         # Modelos gratuitos específicos (sem router). Se um falhar, tenta o seguinte.
         self.modelos = [
-            "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
-            "arcee-ai/trinity-large-preview:free",
-            "meta-llama/llama-3.3-70b-instruct:free",
+            "minimax/minimax-m2.7:free",
+            "google/gemma-4-31b-it:free",
+            "nvidia/nemotron-3-ultra-550b-a55b:free",
         ]
         self.delete_lock = asyncio.Lock()
         self._init_api()
