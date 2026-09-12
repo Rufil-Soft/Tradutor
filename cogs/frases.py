@@ -1,5 +1,4 @@
 import os
-import random
 import asyncio
 import re
 import discord
@@ -9,153 +8,60 @@ from openai import AsyncOpenAI
 
 VERBOSE_LOGS = True
 
-FRASES_PT = [
-    "Se não tens asas, sequer estás a jogar Aion?",
-    "Já voei demasiado perto do sol. O servidor expulsou-me.",
-    "Asas cortadas? Acho que vais a pé para casa, herói.",
-    "Voar no Aion 2 é tipo lag com passos extra.",
-    "As minhas asas são cosméticas. A minha raiva não.",
-    "Elyos de dia, Asmodian de noite. Dormir é para os fracos.",
-    "A relva é sempre mais verde do lado Asmodian. Literalmente. É vermelha.",
-    "Não escolho lados. Escolho quem tem os cosméticos mais bonitos.",
-    "Os Asmodians têm problemas de raiva. Os Elyos têm problemas de confiança. Eu tenho os dois.",
-    "Ding! Nível 50. Agora começa o grind a sério.",
-    "Fiz grind 8 horas para conseguir uma manastone. Falhou. Chorei.",
-    "O tutorial demorou 4 horas. O endgame levou-me a alma.",
-    "Aion 2: onde 'só mais uma quest' é uma mentira que contas a ti mesmo às 3 da manhã.",
-    "Não tenho vida. Tenho uma rotação.",
-    "Enchant falhou. Outra vez. O meu monitor está bem, juro.",
-    "O RNG do Aion não te odeia. Só gosta de te ver sofrer.",
-    "Consegui um drop lendário! Era para outra classe. Claro.",
-    "O RNGesus abandonou-nos. Estamos sozinhos agora.",
-    "Fui gankado enquanto lia o tutorial. 10/10 recomendo.",
-    "PvP no Abismo? Mais tipo PvP no ponto de respawn.",
-    "Não faço gank a lowbies. Só... cumprimento-os agressivamente.",
-    "PvP em mundo aberto: onde a amizade vai morrer.",
-    "Nada diz 'bom dia' como um Sorcerer atrás de ti no Abismo.",
-    "Junta-te à minha legion. Temos bolachas e dívidas paralisantes.",
-    "A estratégia da minha legion é 'todos em pânico' e de alguma forma funciona.",
-    "O chat da legion é 90% memes e 10% 'onde é que eu vou?'",
-    "Não sou líder de guild. Sou babysitter com passos extra.",
-    "Dia de lançamento do Aion 2: 2000 jogadores, 1 servidor, 0 hipóteses.",
-    "O lag é tão mau que o meu personagem voltou ao passado.",
-    "Não é um bug, é uma 'mecânica surpresa'.",
-    "Desconectado? Bem-vindo ao Aion 2. Tem uma boa fila de espera.",
-    "Sou F2P. Isso significa 'Para Sempre Atrás'.",
-    "As baleias no Aion 2 não nadam. Voam à tua frente.",
-    "P2W? Não não, aqui chamamos 'conveniência'.",
-    "O tempo voa quando fazes grind. As minhas asas também. E a minha sanidade.",
-    "Disse a mim mesmo que parava no nível 30. Estou no 52. Mandem ajuda.",
-    "Dormir é um debuff que continuo a ignorar.",
-    "A vida real é só um timer AFK até ao próximo patch.",
-    "Os Clerics não curam. Julgam.",
-    "Sorcerers: a apagar-te do mapa desde 2008.",
-    "Os Gladiators só querem bater em coisas. Respeito.",
-    "Os Assassins são a classe 'não confies em ninguém'. Coincidência: também é a comunidade.",
-    "Aion 2: não é pay to win, é pay to não perder.",
-    "Vim pelas asas. Fiquei porque não consigo fazer logout.",
-    "A única coisa que voa mais rápido do que eu é o meu ouro.",
-    "Jogar Aion 2 é como uma relação abusiva. Adoro.",
-    "Se a vida te dá limões, troca-os por um passe premium.",
-    "Não preciso de terapia. Preciso de um inventário maior.",
-    "O nome do meu personagem é 'PleaseNerfMe'. Ainda não funcionou.",
-    "Patch notes do Aion 2: 'arranjámos coisas'. Que coisas? Sim.",
-    "Todos os MMOs têm uma regra: não confies no jogador com a mount mais xpto.",
-    "PvE está bem. O PvP é onde as amizades são testadas e destruídas.",
-    "Disseram-me 'joga só pela diversão'. Respondi 'vou jogar ranked num jogo PvE'.",
-]
+# Resposta de fallback quando a IA falha (curta e temática, mas genérica)
+FALLBACK_PT = "Estou com lag mental, tenta outra vez."
 
-AMOSTRA_ESTILO = 6
+# Padrões que indicam que o modelo vazou raciocínio interno em vez de
+# dar a resposta final. Rejeitamos e tentamos o próximo modelo.
+_PADROES_RACIOCINIO = (
+    "thinking process",
+    "analyze user input",
+    "identify key constraints",
+    "brainstorming content",
+    "here's a thinking",
+    "here is a thinking",
+    "chain of thought",
+    "let me think",
+    "step 1:",
+    "step 2:",
+    "1. **analyze",
+    "**analyze user",
+    "user input:",
+    "**constraints",
+    "i need to respond",
+    "must use european",
+    "**brainstorm",
+)
+
 MIN_CARACTERES_RESPOSTA = 8
-MIN_CARACTERES_RESPOSTA_CORTADA = 30
-
-frase_manager = None
-
-
-class FraseManager:
-    def __init__(self, frases):
-        self._frases = frases.copy()
-        self._fila = []
-        self._refill()
-
-    def _refill(self):
-        self._fila = self._frases.copy()
-        random.shuffle(self._fila)
-
-    def next(self) -> str:
-        if not self._fila:
-            self._refill()
-        return self._fila.pop()
-
-    def amostra(self, k: int) -> list:
-        k = min(k, len(self._frases))
-        return random.sample(self._frases, k)
-
-
-frase_manager = FraseManager(FRASES_PT)
 
 
 def _resposta_valida(texto: str, finish_reason: str) -> bool:
     if not texto:
         return False
     texto = texto.strip()
-    if not texto:
-        return False
-    if texto in FRASES_PT:
-        return False
     if len(texto) < MIN_CARACTERES_RESPOSTA:
         return False
-    if finish_reason == "length" and len(texto) < MIN_CARACTERES_RESPOSTA_CORTADA:
+    # Se foi cortada por limite de tokens, exigimos um mínimo maior
+    if finish_reason == "length" and len(texto) < 30:
         return False
+    # Rejeita raciocínio interno vazado
+    t_lower = texto.lower()
+    for padrao in _PADROES_RACIOCINIO:
+        if padrao in t_lower:
+            return False
     return True
-
-
-_SUBSTITUICOES_BR_PT = {
-    "você": "tu",
-    "vocês": "vós",
-    "a gente": "nós",
-    "E aí": "Então",
-    "e aí": "então",
-    "Se liga": "Ouve lá",
-    "se liga": "ouve lá",
-    "legal": "fixe",
-    "bacana": "fixe",
-    "cara": "pá",
-    "trem": "coisa",
-    "ônibus": "autocarro",
-    "celular": "telemóvel",
-    "grama": "relva",
-    "time": "equipa",
-    "torcida": "claque",
-    "estou fazendo": "estou a fazer",
-    "estás fazendo": "estás a fazer",
-    "está fazendo": "está a fazer",
-    "estamos fazendo": "estamos a fazer",
-    "estou comendo": "estou a comer",
-    "está comendo": "está a comer",
-    "estou falando": "estou a falar",
-    "está falando": "está a falar",
-    "estou pensando": "estou a pensar",
-    "está pensando": "está a pensar",
-}
-
-
-def _normalizar_pt_pt(texto: str) -> str:
-    if not texto:
-        return texto
-    for br, pt in _SUBSTITUICOES_BR_PT.items():
-        texto = re.sub(rf"\b{re.escape(br)}\b", pt, texto, flags=re.IGNORECASE)
-    return texto
 
 
 class Frases(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.api_client = None
+        # Modelos gratuitos específicos (sem router). Se um falhar, tenta o seguinte.
         self.modelos = [
-            "openrouter/free",
-            "arcee-ai/trinity-large-preview:free",
             "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
+            "arcee-ai/trinity-large-preview:free",
+            "meta-llama/llama-3.3-70b-instruct:free",
         ]
         self.delete_lock = asyncio.Lock()
         self._init_api()
@@ -167,9 +73,9 @@ class Frases(commands.Cog):
                 base_url="https://openrouter.ai/api/v1",
                 api_key=api_key,
             )
-            print("[FRASES] Cliente OpenRouter inicializado (modelos gratuitos).")
+            print("[FRASES] Cliente OpenRouter inicializado.")
         else:
-            print("[FRASES] AVISO: OPENROUTER_API_KEY nao definida. A usar apenas frases fixas.")
+            print("[FRASES] AVISO: OPENROUTER_API_KEY nao definida. Respostas serao fallback.")
 
     async def apagar_com_retry(self, message: discord.Message, tentativas: int = 3) -> bool:
         async with self.delete_lock:
@@ -197,47 +103,30 @@ class Frases(commands.Cog):
 
         texto_limpo = re.sub(r"<@!?[0-9]+>", "", mensagem_usuario).strip()
         if not texto_limpo:
-            texto_limpo = mensagem_usuario
-
-        exemplos = frase_manager.amostra(AMOSTRA_ESTILO)
-        exemplos_texto = "\n".join(f"- {frase}" for frase in exemplos)
+            return None
 
         system_prompt = (
             "Es o Aquiles, um jogador veterano e carismatico de Aion 2. "
-            "Falas como um gamer portugues experiente, com humor leve, sarcasmo amigavel "
-            "e um a-vontade natural. Respondes como se estivesses a conversar no chat do jogo "
-            "com um amigo, nada de respostas formais ou roboticas.\n\n"
+            "Respondes de forma curta, engracada e natural, como se estivesses a conversar "
+            "com um amigo no chat do jogo. O teu objetivo e fazer a pessoa rir ou sorrir, "
+            "com piadas leves sobre a vida de MMO (grind, ganks, RNG, lag, P2W, asas, "
+            "Elyos vs Asmodians, o Abismo, legions, manastones, PvP).\n\n"
 
-            "REGRA ABSOLUTA DE IDIOMA:\n"
-            "Escreves SEMPRE em PORTUGUES EUROPEU (PT-PT). NUNCA uses portugues do Brasil.\n"
-            "Exemplos do que deves evitar:\n"
-            "- 'voce esta fazendo' -> 'tu estas a fazer'\n"
-            "- 'E ai, galera' -> 'Entao, pessoal'\n"
-            "- 'Se liga' -> 'Ouve la'\n"
-            "- 'legal', 'bacana' -> 'fixe', 'porreiro'\n"
-            "- 'cara' -> 'pa'\n"
-            "- 'a gente vai' -> 'nos vamos'\n"
-            "- 'celular', 'onibus', 'grama', 'time' -> 'telemovel', 'autocarro', 'relva', 'equipa'\n\n"
-
-            "Usa SEMPRE o gerundio perifrastico: 'estou a fazer', 'estas a jogar', 'estamos a grindar'.\n\n"
-
-            f"Exemplos do teu estilo (repara no PT-PT natural):\n{exemplos_texto}\n\n"
-
-            "Instrucoes:\n"
-            "- Responde diretamente ao que o utilizador disse, com humor e um toque de gaming.\n"
-            "- Mantem a resposta curta (2 a 3 frases no maximo).\n"
-            "- Fala como uma pessoa real, nao como um assistente.\n"
-            "- Mantem tudo leve, amigavel e inclusivo. Sem insultos, sem toxicidade, sem humor negro.\n"
-            "- Referencia o Aion 2 (asas, Elyos, Asmodians, o Abismo, grind, legions, manastones, "
-            "PvP, etc.) sempre que encaixe na piada.\n"
-            "- Nunca saias da personagem, nunca menciones que es uma IA."
+            "REGRAS OBRIGATORIAS:\n"
+            "1. Escreves SEMPRE em portugues europeu (PT-PT). Nunca portugues do Brasil.\n"
+            "   - Usa 'tu' em vez de 'voce'.\n"
+            "   - Usa 'estou a fazer' em vez de 'estou fazendo'.\n"
+            "   - Usa 'fixe' em vez de 'legal'/'bacana'.\n"
+            "   - Usa 'pa' em vez de 'cara'.\n"
+            "2. Responde APENAS com a resposta final. NUNCA escrevas o teu raciocinio, "
+            "   listas, 'thinking process', 'analyze user input', nem nada do genero.\n"
+            "3. Maximo 3 frases curtas.\n"
+            "4. NUNCA menciones que es uma IA. Mantem sempre a personagem.\n"
+            "5. Mantem tudo leve e amigavel. Sem insultos, sem toxicidade, sem humor negro.\n"
+            "6. Responde sempre ao que a pessoa disse, nao mudes de assunto."
         )
 
-        user_prompt = (
-            f"O utilizador disse: \"{texto_limpo}\"\n\n"
-            "Responde como o Aquiles, o veterano divertido de Aion 2, "
-            "OBRIGATORIAMENTE em portugues europeu (PT-PT)."
-        )
+        user_prompt = f"Mensagem do jogador: \"{texto_limpo}\"\n\nResponde como o Aquiles."
 
         for modelo in self.modelos:
             try:
@@ -247,13 +136,13 @@ class Frases(commands.Cog):
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
                     ],
-                    max_tokens=500,
-                    temperature=0.9,
+                    max_tokens=300,
+                    temperature=0.85,
                 )
                 finish_reason = response.choices[0].finish_reason
+
                 if VERBOSE_LOGS:
-                    print(f"[FRASES] Modelo: {modelo}")
-                    print(f"[FRASES] Finish reason: {finish_reason}")
+                    print(f"[FRASES] Modelo: {modelo} | finish_reason: {finish_reason}")
 
                 resposta_gerada = response.choices[0].message.content
                 if VERBOSE_LOGS:
@@ -261,17 +150,15 @@ class Frases(commands.Cog):
 
                 if resposta_gerada:
                     resposta_gerada = resposta_gerada.strip()
-                    resposta_gerada = _normalizar_pt_pt(resposta_gerada)
 
                 if _resposta_valida(resposta_gerada, finish_reason):
                     if VERBOSE_LOGS:
-                        print(f"[FRASES] Resposta da IA: {resposta_gerada}")
+                        print(f"[FRASES] OK: {resposta_gerada}")
                     return resposta_gerada
 
-                print(f"[FRASES] Modelo {modelo} devolveu resposta vazia/curta/truncada "
-                      f"(finish_reason={finish_reason!r}). Tentando proximo...")
+                print(f"[FRASES] Modelo {modelo} devolveu resposta invalida. A tentar proximo...")
             except Exception as e:
-                print(f"[FRASES] Erro no OpenRouter com modelo {modelo}: {e}")
+                print(f"[FRASES] Erro no modelo {modelo}: {e}")
 
         return None
 
@@ -283,6 +170,7 @@ class Frases(commands.Cog):
         if self.bot.user in message.mentions:
             conteudo_formatado = f"<@{message.author.id}>: {message.content}"
 
+            # 1) Envia o echo (mensagem do utilizador + botão 🌍)
             try:
                 msg_echo = await message.channel.send(
                     content=conteudo_formatado,
@@ -294,19 +182,22 @@ class Frases(commands.Cog):
                 print(f"[FRASES] Erro ao enviar echo: {e}")
                 return
 
+            # 2) Tenta apagar a mensagem original
             sucesso = await self.apagar_com_retry(message)
             if not sucesso:
                 try:
                     await msg_echo.delete()
-                except Exception as e:
-                    print(f"[FRASES] Erro ao apagar echo: {e}")
+                except Exception:
+                    pass
                 return
 
             registar_mensagem(msg_echo.id, conteudo_formatado, message.content)
 
-            resposta = await self._gerar_resposta_ia(message.content)
+            # 3) Gera a resposta da IA (ou usa fallback)
+            async with message.channel.typing():
+                resposta = await self._gerar_resposta_ia(message.content)
             if not resposta:
-                resposta = frase_manager.next()
+                resposta = FALLBACK_PT
 
             base_resposta = f"🎮 {resposta}"
             try:
@@ -317,10 +208,8 @@ class Frases(commands.Cog):
 
     @commands.command(name="frase")
     async def frase(self, ctx):
-        frase_original = frase_manager.next()
-        base = f"🎮 {frase_original}"
-        msg = await ctx.send(base, view=TranslateView())
-        registar_mensagem(msg.id, base, frase_original)
+        """Fallback simples: responde uma frase temática."""
+        await ctx.send(f"🎮 {FALLBACK_PT}", view=TranslateView())
 
     @commands.command(name="iatest")
     async def iatest(self, ctx, *, texto: str):
@@ -328,7 +217,7 @@ class Frases(commands.Cog):
         if resposta:
             await ctx.send(f"🧠 IA: {resposta}")
         else:
-            await ctx.send("❌ IA falhou ou devolveu vazio.")
+            await ctx.send(f"❌ IA falhou. Fallback: {FALLBACK_PT}")
 
 
 async def setup(bot: commands.Bot):
