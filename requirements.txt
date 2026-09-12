@@ -3,3 +3,4 @@ deep-translator>=1.11.4
 aiohttp>=3.9.0
 groq
 langdetect
+openai>=1.0.0
