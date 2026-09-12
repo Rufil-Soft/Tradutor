@@ -57,11 +57,21 @@ class Frases(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.api_client = None
-        # Modelos gratuitos específicos (sem router). Se um falhar, tenta o seguinte.
+        # "openrouter/free" é um router mantido pela própria OpenRouter que
+        # escolhe automaticamente, em cada pedido, um modelo gratuito
+        # disponível naquele momento. Evita ficarmos presos a slugs fixos
+        # (ex.: minimax/minimax-m2.7:free) que a OpenRouter descontinua ou
+        # reclassifica como pagos sem aviso — foi exatamente isso que causou
+        # o 404 no minimax no log mais recente.
+        #
+        # Mantemos 2 modelos fixos como último recurso, para o caso raro de
+        # o próprio router falhar; se algum destes começar a dar 404/410 de
+        # forma persistente, está descontinuado e deve ser substituído —
+        # confirma sempre em https://openrouter.ai/models?fmt=cards&max_price=0
         self.modelos = [
-            "minimax/minimax-m2.7:free",
-            "google/gemma-4-31b-it:free",
+            "openrouter/free",
             "nvidia/nemotron-3-ultra-550b-a55b:free",
+            "google/gemma-4-31b-it:free",
         ]
         self.delete_lock = asyncio.Lock()
         self._init_api()
@@ -139,12 +149,27 @@ class Frases(commands.Cog):
                     max_tokens=300,
                     temperature=0.85,
                 )
-                finish_reason = response.choices[0].finish_reason
+
+                # Alguns modelos ':free' da OpenRouter, quando o provedor
+                # upstream falha a meio do pedido, devolvem um objeto de
+                # resposta "válido" (sem lançar HTTPException) mas com
+                # 'choices' a None/vazio. Sem esta verificação, o acesso a
+                # response.choices[0] rebenta com
+                # "'NoneType' object is not subscriptable" — foi isto que
+                # aconteceu ao nemotron no log mais recente.
+                choices = getattr(response, "choices", None)
+                if not choices:
+                    erro_upstream = getattr(response, "error", None)
+                    print(f"[FRASES] Modelo {modelo} devolveu resposta sem 'choices'. "
+                          f"Erro upstream reportado: {erro_upstream!r}")
+                    continue
+
+                finish_reason = choices[0].finish_reason
 
                 if VERBOSE_LOGS:
                     print(f"[FRASES] Modelo: {modelo} | finish_reason: {finish_reason}")
 
-                resposta_gerada = response.choices[0].message.content
+                resposta_gerada = choices[0].message.content
                 if VERBOSE_LOGS:
                     print(f"[FRASES] Conteudo bruto: {resposta_gerada!r}")
 
