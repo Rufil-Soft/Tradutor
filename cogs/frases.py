@@ -7,25 +7,25 @@ import discord
 from discord.ext import commands
 from cogs.traducao import TranslateView, registar_mensagem
 from openai import AsyncOpenAI
+from groq import AsyncGroq
 
 VERBOSE_LOGS = True
 
 # Timeout por chamada individual à API (segundos). Modelos ':free' partilhados
-# podem "pendurar-se" sob carga; falhar depressa e passar ao próximo modelo
-# da lista é preferível a deixar o utilizador à espera vários minutos.
+# podem "pendurar-se" sob carga; falhar depressa é preferível a deixar o
+# utilizador à espera vários minutos.
 API_TIMEOUT_SEGUNDOS = 15
 
 # Cooldown por utilizador entre menções ao bot (segundos). Sem isto, qualquer
 # pessoa pode disparar uma chamada externa por cada menção, sem limite —
-# agrava os rate-limits partilhados da OpenRouter e, se algum dia usares um
-# modelo pago no fallback, também é uma via de abuso de custo.
+# agrava os rate-limits partilhados e, se algum dia usares um modelo pago,
+# também é uma via de abuso de custo.
 COOLDOWN_SEGUNDOS = 10
 _ultima_mencao = {}  # user_id -> timestamp da última menção processada
 
-# Frases de fallback quando a IA falha (todos os modelos indisponíveis, ou só
-# devolveram lixo/raciocínio vazado). Uma lista pequena mas com variedade,
-# para o utilizador não ver sempre a mesma frase repetida se a IA estiver
-# instável durante algum tempo.
+# Frases de fallback quando a IA falha em todos os provedores. Uma lista
+# pequena mas com variedade, para o utilizador não ver sempre a mesma frase
+# repetida se a IA estiver instável durante algum tempo.
 FRASES_FALLBACK_PT = [
     "Estou com lag mental, tenta outra vez.",
     "Server dos meus pensamentos caiu, dá-me um segundo.",
@@ -40,7 +40,7 @@ def _frase_fallback() -> str:
     return random.choice(FRASES_FALLBACK_PT)
 
 # Padrões que indicam que o modelo vazou raciocínio interno em vez de
-# dar a resposta final. Rejeitamos e tentamos o próximo modelo.
+# dar a resposta final. Rejeitamos e tentamos o próximo candidato.
 _PADROES_RACIOCINIO = (
     "thinking process",
     "analyze user input",
@@ -84,38 +84,50 @@ def _resposta_valida(texto: str, finish_reason: str) -> bool:
 class Frases(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.api_client = None
-        # "meta-llama/llama-3.3-70b-instruct:free" é um modelo de instrução
-        # DIRETA (sem raciocínio interno) — elimina de vez a causa raiz dos
-        # bugs anteriores (content=None com finish_reason="length"), porque
-        # não existe raciocínio escondido a consumir o orçamento de tokens.
-        # É também o modelo ':free' mais antigo e estabelecido da OpenRouter
-        # (desde dez/2024), com 13 provedores diferentes por trás do mesmo
-        # slug — a própria OpenRouter já faz balanceamento/fallback entre
-        # eles antes mesmo de chegar ao nosso código.
-        #
-        # Mantemos 2 modelos de reserva para o caso (raro) de a família
-        # Llama 3.3 estar completamente indisponível:
-        # - a variante 8B, mais leve, da mesma família;
-        # - "openrouter/free" como router genérico de último recurso.
-        self.modelos = [
-            "meta-llama/llama-3.3-70b-instruct:free",
-            "meta-llama/llama-3.3-8b-instruct:free",
-            "openrouter/free",
-        ]
-        self.delete_lock = asyncio.Lock()
-        self._init_api()
+        self.openrouter_client = None
+        self.groq_client = None
 
-    def _init_api(self):
-        api_key = os.getenv("OPENROUTER_API_KEY")
-        if api_key:
-            self.api_client = AsyncOpenAI(
+        # Cada candidato é um provedor + modelo diferente. Correr candidatos
+        # de PROVEDORES diferentes (não só modelos diferentes dentro do
+        # mesmo provedor) é o que dá resiliência real: um problema na
+        # OpenRouter (churn de modelos free, rate-limit partilhado, 502 de
+        # upstream) não afeta a Groq, que aloja os seus modelos em hardware
+        # próprio (LPUs), e vice-versa.
+        #
+        # Nota sobre a camada gratuita da OpenRouter: não existe um slug
+        # fixo "estável a longo prazo" — já vimos modelos descritos como
+        # "os mais estabelecidos da plataforma" desaparecerem da versão
+        # free em poucos dias. Por isso usamos "openrouter/free" (o router
+        # mantido pela própria OpenRouter) em vez de apostar num slug fixo.
+        self.candidatos = [
+            {"provedor": "openrouter", "modelo": "openrouter/free"},
+            {"provedor": "groq", "modelo": "openai/gpt-oss-20b"},
+            {"provedor": "openrouter", "modelo": "nvidia/nemotron-3-ultra-550b-a55b:free"},
+        ]
+
+        self.delete_lock = asyncio.Lock()
+        self._init_apis()
+
+    def _init_apis(self):
+        openrouter_key = os.getenv("OPENROUTER_API_KEY")
+        if openrouter_key:
+            self.openrouter_client = AsyncOpenAI(
                 base_url="https://openrouter.ai/api/v1",
-                api_key=api_key,
+                api_key=openrouter_key,
             )
             print("[FRASES] Cliente OpenRouter inicializado.")
         else:
-            print("[FRASES] AVISO: OPENROUTER_API_KEY nao definida. Respostas serao fallback.")
+            print("[FRASES] AVISO: OPENROUTER_API_KEY nao definida.")
+
+        groq_key = os.getenv("GROQ_API_KEY")
+        if groq_key:
+            self.groq_client = AsyncGroq(api_key=groq_key)
+            print("[FRASES] Cliente Groq inicializado (frases).")
+        else:
+            print("[FRASES] AVISO: GROQ_API_KEY nao definida.")
+
+        if not self.openrouter_client and not self.groq_client:
+            print("[FRASES] AVISO: nenhum provedor de IA disponivel. Respostas serao fallback.")
 
     async def apagar_com_retry(self, message: discord.Message, tentativas: int = 3) -> bool:
         async with self.delete_lock:
@@ -138,7 +150,7 @@ class Frases(commands.Cog):
             return False
 
     async def _gerar_resposta_ia(self, mensagem_usuario: str) -> str:
-        if not self.api_client:
+        if not self.openrouter_client and not self.groq_client:
             return None
 
         texto_limpo = re.sub(r"<@!?[0-9]+>", "", mensagem_usuario).strip()
@@ -172,22 +184,29 @@ class Frases(commands.Cog):
             {"role": "user", "content": user_prompt}
         ]
 
-        # Disparamos os modelos em PARALELO (não sequencialmente) e ficamos
-        # com o primeiro que devolver uma resposta válida, cancelando os
-        # restantes. Como são todos modelos ':free' (custo zero), isto não
-        # tem custo extra — e evita que a latência total seja a SOMA de
-        # vários timeouts/falhas em cadeia (era isso que estava a tornar o
-        # bot lento: openrouter/free a falhar, depois 15s à espera do
-        # nemotron, depois o gemma). Agora a latência sentida é a do modelo
-        # mais rápido a responder bem, não a soma de todos os que falharam.
-        tasks = {
-            asyncio.create_task(self._tentar_modelo(modelo, mensagens_api)): modelo
-            for modelo in self.modelos
-        }
+        # Só disparamos candidatos cujo cliente está de facto inicializado
+        # (chave de API presente).
+        candidatos_ativos = [
+            c for c in self.candidatos
+            if (c["provedor"] == "openrouter" and self.openrouter_client)
+            or (c["provedor"] == "groq" and self.groq_client)
+        ]
+        if not candidatos_ativos:
+            return None
+
+        # Disparamos todos os candidatos em PARALELO — provedores e modelos
+        # diferentes ao mesmo tempo — e ficamos com o primeiro que devolver
+        # uma resposta válida, cancelando os restantes. Como são todos
+        # gratuitos, isto não tem custo extra, e evita que a latência total
+        # seja a soma de várias falhas/timeouts em cadeia.
+        tasks = [
+            asyncio.create_task(self._tentar_candidato(c, mensagens_api))
+            for c in candidatos_ativos
+        ]
 
         resposta_final = None
         try:
-            for tarefa in asyncio.as_completed(list(tasks.keys())):
+            for tarefa in asyncio.as_completed(tasks):
                 resultado = await tarefa
                 if resultado:
                     resposta_final = resultado
@@ -199,66 +218,81 @@ class Frases(commands.Cog):
 
         return resposta_final
 
-    async def _tentar_modelo(self, modelo: str, mensagens_api: list) -> str:
-        """Faz uma chamada a um único modelo e devolve a resposta se for
-        válida, ou None em caso de falha/resposta inválida. Nunca lança
+    async def _tentar_candidato(self, candidato: dict, mensagens_api: list) -> str:
+        """Faz uma chamada a um único candidato (provedor+modelo) e devolve
+        a resposta se for válida, ou None em caso de falha. Nunca lança
         exceção — é seguro correr várias instâncias em paralelo."""
-        try:
-            response = await self.api_client.chat.completions.create(
-                model=modelo,
-                messages=mensagens_api,
-                # 900 dá margem confortável mesmo que a lista alguma vez
-                # inclua um modelo de raciocínio (ex.: o "openrouter/free"
-                # de último recurso pode calhar nisso). Para os modelos
-                # principais (instrução direta, sem raciocínio) isto é só
-                # uma rede de segurança — normalmente terminam bem antes.
-                max_tokens=900,
-                temperature=0.85,
-                timeout=API_TIMEOUT_SEGUNDOS,
-                # No-op inofensivo em modelos sem raciocínio (como os dois
-                # principais da lista agora); só entra em ação se a chamada
-                # cair no fallback "openrouter/free" e este escolher um
-                # modelo de raciocínio.
-                extra_body={"reasoning": {"effort": "low", "exclude": True}},
-            )
+        provedor = candidato["provedor"]
+        modelo = candidato["modelo"]
+        etiqueta = f"{provedor}:{modelo}"
 
-            # Alguns modelos ':free' da OpenRouter, quando o provedor
-            # upstream falha a meio do pedido, devolvem um objeto de
-            # resposta "válido" (sem lançar HTTPException) mas com
-            # 'choices' a None/vazio. Sem esta verificação, o acesso a
-            # response.choices[0] rebenta com
+        try:
+            if provedor == "openrouter":
+                response = await self.openrouter_client.chat.completions.create(
+                    model=modelo,
+                    messages=mensagens_api,
+                    max_tokens=900,
+                    temperature=0.85,
+                    timeout=API_TIMEOUT_SEGUNDOS,
+                    # Sintaxe unificada da OpenRouter para controlar
+                    # raciocínio, independente do modelo escolhido por
+                    # trás do "openrouter/free".
+                    extra_body={"reasoning": {"effort": "low", "exclude": True}},
+                )
+            elif provedor == "groq":
+                response = await self.groq_client.chat.completions.create(
+                    model=modelo,
+                    messages=mensagens_api,
+                    max_tokens=600,
+                    temperature=0.85,
+                    timeout=API_TIMEOUT_SEGUNDOS,
+                    # Sintaxe própria da Groq (parâmetros diretos, não
+                    # 'extra_body') para os modelos gpt-oss, que são de
+                    # raciocínio: reduz o esforço interno e garante que não
+                    # se mistura com o conteúdo visível.
+                    reasoning_effort="low",
+                    reasoning_format="hidden",
+                )
+            else:
+                print(f"[FRASES] Provedor desconhecido: {provedor}")
+                return None
+
+            # Alguns modelos ':free' (sobretudo na OpenRouter), quando o
+            # provedor upstream falha a meio do pedido, devolvem um objeto
+            # de resposta "válido" mas com 'choices' a None/vazio. Sem esta
+            # verificação, response.choices[0] rebenta com
             # "'NoneType' object is not subscriptable".
             choices = getattr(response, "choices", None)
             if not choices:
                 erro_upstream = getattr(response, "error", None)
-                print(f"[FRASES] Modelo {modelo} devolveu resposta sem 'choices'. "
+                print(f"[FRASES] {etiqueta} devolveu resposta sem 'choices'. "
                       f"Erro upstream reportado: {erro_upstream!r}")
                 return None
 
             finish_reason = choices[0].finish_reason
 
             if VERBOSE_LOGS:
-                print(f"[FRASES] Modelo: {modelo} | finish_reason: {finish_reason}")
+                print(f"[FRASES] {etiqueta} | finish_reason: {finish_reason}")
 
             resposta_gerada = choices[0].message.content
             if VERBOSE_LOGS:
-                print(f"[FRASES] Conteudo bruto ({modelo}): {resposta_gerada!r}")
+                print(f"[FRASES] Conteudo bruto ({etiqueta}): {resposta_gerada!r}")
 
             if resposta_gerada:
                 resposta_gerada = resposta_gerada.strip()
 
             if _resposta_valida(resposta_gerada, finish_reason):
                 if VERBOSE_LOGS:
-                    print(f"[FRASES] OK ({modelo}): {resposta_gerada}")
+                    print(f"[FRASES] OK ({etiqueta}): {resposta_gerada}")
                 return resposta_gerada
 
-            print(f"[FRASES] Modelo {modelo} devolveu resposta invalida.")
+            print(f"[FRASES] {etiqueta} devolveu resposta invalida.")
             return None
         except asyncio.CancelledError:
-            # Esperado quando outro modelo já respondeu primeiro — não é um erro.
+            # Esperado quando outro candidato já respondeu primeiro.
             raise
         except Exception as e:
-            print(f"[FRASES] Erro no modelo {modelo}: {e}")
+            print(f"[FRASES] Erro no candidato {etiqueta}: {e}")
             return None
 
     @commands.Cog.listener()
@@ -272,7 +306,7 @@ class Frases(commands.Cog):
             if ultima and (agora - ultima) < COOLDOWN_SEGUNDOS:
                 restante = COOLDOWN_SEGUNDOS - (agora - ultima)
                 try:
-                    aviso = await message.channel.send(
+                    await message.channel.send(
                         f"⏳ Calma aí, {message.author.mention}! Espera {restante:.0f}s antes de me chamares outra vez.",
                         delete_after=6,
                         allowed_mentions=discord.AllowedMentions(users=False)
