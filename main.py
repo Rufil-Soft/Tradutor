@@ -1,4 +1,5 @@
 import os
+import sys
 import asyncio
 import traceback
 import time
@@ -74,11 +75,23 @@ async def start_bot_with_retry(token: str):
             print(f"[LOGIN] Erro inesperado: {e}")
             raise
 
-@bot.tree.command(name="restart", description="Reinicia a sessão do bot (Apenas Administradores).")
+@bot.tree.command(name="restart", description="Reinicia o bot (Apenas Administradores).")
 @app_commands.checks.has_permissions(administrator=True)
 async def reiniciar(interaction: discord.Interaction):
-    await interaction.response.send_message("🔄 [SISTEMA OMERTA] Reiniciando subsistemas...", ephemeral=True)
+    await interaction.response.send_message(
+        "🔄 [SISTEMA] A reiniciar o bot... volta em alguns segundos.",
+        ephemeral=True
+    )
+    print("[RESTART] Reinício pedido por administrador. A recarregar o processo...")
+    # Fecha a ligação ao Discord de forma limpa (evita sessões duplicadas)
     await bot.close()
+    # Garante que a resposta é enviada antes de substituir o processo
+    await asyncio.sleep(1)
+    # Substitui o processo atual por uma nova instância de Python.
+    # O daemon do Bot-Hosting vê o mesmo PID, por isso NÃO deteta um crash
+    # e não aborta o restart automático.
+    python = sys.executable
+    os.execv(python, [python, "-u", sys.argv[0]])
 
 @bot.event
 async def on_ready():
