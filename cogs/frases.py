@@ -5,9 +5,9 @@ import re
 import discord
 from discord.ext import commands
 from cogs.traducao import TranslateView, registar_mensagem
-from groq import AsyncGroq
+from openai import AsyncOpenAI  # SDK compatível com OpenRouter
 
-VERBOSE_LOGS = True  # Coloca True se precisares de logs detalhados da IA
+VERBOSE_LOGS = True  # Coloca True para ver logs detalhados da IA
 
 FRASES_PT = [
     # Asas e voo
@@ -127,21 +127,71 @@ def _resposta_valida(texto: str, finish_reason: str) -> bool:
         return False
     return True
 
+# Palavras e expressões típicas de PT-BR que devemos evitar.
+# Rede de segurança: se o modelo escapar ao prompt, isto corrige.
+_SUBSTITUICOES_BR_PT = {
+    "você": "tu",
+    "vocês": "vós",
+    "a gente": "nós",
+    "E aí": "Então",
+    "e aí": "então",
+    "Se liga": "Ouve lá",
+    "se liga": "ouve lá",
+    "legal": "fixe",
+    "bacana": "fixe",
+    "cara": "pá",
+    "cara,": "pá,",
+    "trem": "coisa",
+    "ônibus": "autocarro",
+    "celular": "telemóvel",
+    "grama": "relva",
+    "time": "equipa",
+    "torcida": "claque",
+    "estou fazendo": "estou a fazer",
+    "estás fazendo": "estás a fazer",
+    "está fazendo": "está a fazer",
+    "estamos fazendo": "estamos a fazer",
+    "estou comendo": "estou a comer",
+    "está comendo": "está a comer",
+    "estou falando": "estou a falar",
+    "está falando": "está a falar",
+    "estou pensando": "estou a pensar",
+    "está pensando": "está a pensar",
+}
+
+def _normalizar_pt_pt(texto: str) -> str:
+    """Aplica substituições simples de PT-BR → PT-PT no texto gerado pela IA."""
+    if not texto:
+        return texto
+    for br, pt in _SUBSTITUICOES_BR_PT.items():
+        texto = re.sub(rf"\b{re.escape(br)}\b", pt, texto, flags=re.IGNORECASE)
+    return texto
+
+
 class Frases(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.groq_client = None
-        self.groq_model = "openai/gpt-oss-20b"
+        self.api_client = None
+        # Modelos gratuitos do OpenRouter, por ordem de preferência.
+        # Se um falhar, tenta o seguinte.
+        self.modelos = [
+            "sophosympatheia/rogue-rose-103b-v0.2:free",   # especializado em roleplay
+            "nousresearch/hermes-3-llama-3.1-405b:free",   # bom em personagens
+            "tngtech/deepseek-r1t-chimera:free",           # contexto enorme, fallback
+        ]
         self.delete_lock = asyncio.Lock()
-        self._init_groq()
+        self._init_api()
 
-    def _init_groq(self):
-        api_key = os.getenv("GROQ_API_KEY")
+    def _init_api(self):
+        api_key = os.getenv("OPENROUTER_API_KEY")
         if api_key:
-            self.groq_client = AsyncGroq(api_key=api_key)
-            print("[FRASES] Cliente Groq inicializado.")
+            self.api_client = AsyncOpenAI(
+                base_url="https://openrouter.ai/api/v1",
+                api_key=api_key,
+            )
+            print("[FRASES] Cliente OpenRouter inicializado (modelos gratuitos).")
         else:
-            print("[FRASES] ⚠️ GROQ_API_KEY não definida. A usar apenas frases fixas.")
+            print("[FRASES] ⚠️ OPENROUTER_API_KEY não definida. A usar apenas frases fixas.")
 
     async def apagar_com_retry(self, message: discord.Message, tentativas: int = 3) -> bool:
         async with self.delete_lock:
@@ -164,7 +214,7 @@ class Frases(commands.Cog):
             return False
 
     async def _gerar_resposta_ia(self, mensagem_usuario: str) -> str:
-        if not self.groq_client:
+        if not self.api_client:
             return None
 
         texto_limpo = re.sub(r"<@!?[0-9]+>", "", mensagem_usuario).strip()
@@ -175,46 +225,52 @@ class Frases(commands.Cog):
         exemplos_texto = "\n".join(f"- {frase}" for frase in exemplos)
 
         system_prompt = (
-            "És o Aquiles, um veterano divertido e simpático de MMORPGs, obcecado com o Aion 2. "
-            "És espirituoso, sarcástico e estás sempre pronto com uma piada sobre grind, ganks, "
-            "asas, Elyos vs Asmodians, RNG, lag, P2W e a vida caótica de um gamer online. "
-            "Respondes diretamente à mensagem do utilizador, de forma natural e conversacional, "
-            "tentando sempre fazê-lo rir ou sorrir. "
-            "Usa os exemplos abaixo apenas como referência de tom e estilo de humor, "
-            "mas nunca os repitas palavra por palavra. Cria sempre uma resposta nova e relevante.\n\n"
-            f"Exemplos do teu estilo:\n{exemplos_texto}\n\n"
+            "És o Aquiles, um jogador veterano e carismático de Aion 2. "
+            "Falas como um gamer português experiente, com humor leve, sarcasmo amigável "
+            "e um à-vontade natural. Respondes como se estivesses a conversar no chat do jogo "
+            "com um amigo — nada de respostas formais ou robóticas.\n\n"
+
+            "⚠️ REGRA ABSOLUTA DE IDIOMA ⚠️\n"
+            "Escreves SEMPRE em PORTUGUÊS EUROPEU (PT-PT). NUNCA uses português do Brasil.\n"
+            "Exemplos do que deves evitar:\n"
+            "- ❌ 'você está fazendo' → ✅ 'tu estás a fazer'\n"
+            "- ❌ 'E aí, galera' → ✅ 'Então, pessoal'\n"
+            "- ❌ 'Se liga' → ✅ 'Ouve lá'\n"
+            "- ❌ 'legal', 'bacana' → ✅ 'fixe', 'porreiro'\n"
+            "- ❌ 'cara' → ✅ 'pá'\n"
+            "- ❌ 'a gente vai' → ✅ 'nós vamos'\n"
+            "- ❌ 'celular', 'ônibus', 'grama', 'time' → ✅ 'telemóvel', 'autocarro', 'relva', 'equipa'\n\n"
+
+            "Usa SEMPRE o gerúndio perifrástico: 'estou a fazer', 'estás a jogar', 'estamos a grindar'.\n\n"
+
+            f"Exemplos do teu estilo (repara no PT-PT natural):\n{exemplos_texto}\n\n"
+
             "Instruções:\n"
-            "- Responde ao que o utilizador disse, com humor e um toque de gaming.\n"
-            "- Mantém a resposta curta (no máximo 2 a 3 frases).\n"
-            "- Fala em português de Portugal (PT-PT).\n"
+            "- Responde diretamente ao que o utilizador disse, com humor e um toque de gaming.\n"
+            "- Mantém a resposta curta (2 a 3 frases no máximo).\n"
+            "- Fala como uma pessoa real, não como um assistente.\n"
             "- Mantém tudo leve, amigável e inclusivo. Sem insultos, sem toxicidade, sem humor negro.\n"
-            "- Sente-te à vontade para referir o Aion 2 (asas, Elyos, Asmodians, o Abismo, grind, "
-            "legions, manastones, PvP, etc.) sempre que encaixe na piada.\n"
+            "- Referencia o Aion 2 (asas, Elyos, Asmodians, o Abismo, grind, legions, manastones, "
+            "PvP, etc.) sempre que encaixe na piada.\n"
             "- Nunca saias da personagem, nunca menciones que és uma IA."
         )
 
         user_prompt = (
             f"O utilizador disse: \"{texto_limpo}\"\n\n"
-            "Responde como o Aquiles, o veterano divertido de Aion 2."
+            "Responde como o Aquiles, o veterano divertido de Aion 2, "
+            "OBRIGATORIAMENTE em português europeu (PT-PT)."
         )
 
-        modelos = [
-            self.groq_model,
-            "openai/gpt-oss-120b",
-        ]
-
-        for modelo in modelos:
+        for modelo in self.modelos:
             try:
-                response = await self.groq_client.chat.completions.create(
+                response = await self.api_client.chat.completions.create(
                     model=modelo,
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
                     ],
-                    max_tokens=600,
+                    max_tokens=500,
                     temperature=0.9,
-                    reasoning_effort="low",
-                    reasoning_format="hidden",
                 )
                 finish_reason = response.choices[0].finish_reason
                 if VERBOSE_LOGS:
@@ -227,6 +283,7 @@ class Frases(commands.Cog):
 
                 if resposta_gerada:
                     resposta_gerada = resposta_gerada.strip()
+                    resposta_gerada = _normalizar_pt_pt(resposta_gerada)
 
                 if _resposta_valida(resposta_gerada, finish_reason):
                     if VERBOSE_LOGS:
@@ -236,7 +293,7 @@ class Frases(commands.Cog):
                 print(f"[FRASES] Modelo {modelo} devolveu resposta vazia/curta/truncada "
                       f"(finish_reason={finish_reason!r}). Tentando próximo...")
             except Exception as e:
-                print(f"[FRASES] Erro na API Groq com modelo {modelo}: {e if VERBOSE_LOGS else 'erro (ver detalhe com VERBOSE_LOGS=True)'}")
+                print(f"[FRASES] Erro no OpenRouter com modelo {modelo}: {e}")
 
         return None
 
